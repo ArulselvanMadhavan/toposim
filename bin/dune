@@ -1,0 +1,6 @@
+(executable
+ (public_name toposim)
+ (name main)
+ (preprocess
+  (pps ppx_jane))
+ (libraries toposim))
