@@ -70,14 +70,14 @@ let make_xpu xpu_id link_mat dst_mat =
     let open Link_signal.Link_value in
     (* Establish uplinks *)
     let establish_conn i u =
-      let status =
+      let status, update_time =
         match !!u.status with
-        | Undefined -> Connecting
-        | x -> x
+        | Undefined -> Connecting, (Async.current_time ())
+        | x -> x, !!u.update_time
       in
       let delay = get_delay !!u.status in
-      let lv = make_t xpu_id dsts.(i) status (Async.current_time ()) in
-      (u <--- lv) ~delay
+      let lv = make_t xpu_id dsts.(i) status update_time in
+      (u <--- lv) ~delay;
     in
     let uplinks = link_mat.(xpu_id) in
     Array.iteri uplinks ~f:establish_conn;
@@ -92,18 +92,13 @@ let make_xpu xpu_id link_mat dst_mat =
       let handle_dlink dl =
         let open Async in
         let%map () = wait_for_change (Signal.id dl) in
-        (* Stdio.printf "change %d|%d|%d|%s\n" (current_time ()) (!!dl.src) xpu_id (Sexp.to_string (Link_signal.Link_value.sexp_of_link_status !!dl.status)); *)
-        let status =
-          match !!dl.status with
-          | Connecting -> Ready
-          | x -> x
-        in
-        let new_lv = { !!dl with status; update_time = current_time () } in
-        (* links become ready *)
-        (* Stdio.printf *)
-        (*   "Updating:%s\n" *)
-        (*   (Sexp.to_string (Link_signal.Link_value.sexp_of_t new_lv)); *)
         let delay = get_delay !!dl.status in
+        let (status, update_time) =
+          match !!dl.status with
+          | Connecting -> Ready, current_time ()
+          | x -> x, !!dl.update_time
+        in
+        let new_lv = { !!dl with status; update_time } in
         (dl <--- new_lv) ~delay
       in
       handle_dlink xpu_dlink
@@ -127,5 +122,5 @@ let () =
   let ds1 = Array.map ls1 ~f:(Sim.Debug.print_signal "xpu1_link") in
   let xpus = [ xpu0; xpu1 ] @ Array.to_list ds0 @ Array.to_list ds1 in
   let xpusim = Sim.create xpus in
-  Sim.run xpusim ~time_limit:5
+  Sim.run xpusim ~time_limit:8
 ;;
