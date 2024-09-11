@@ -1,0 +1,3 @@
+* XPU
+- Each XPU is responsible for establishing uplink connection
+- Each XPU is responsible for accepting downlink connection

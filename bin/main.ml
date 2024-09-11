@@ -59,32 +59,38 @@ module Link_signal = struct
   end
 end
 
-let make_xpu xpu_id dsts =
-  let uplinks =
+let make_uplinks dsts =
     Array.init (Array.length dsts) ~f:(fun _ ->
       Signal.create (module Link_signal.Link_value))
-  in
+
+let make_xpu xpu_id uplinks dsts =
   let uplink_ids = Sim.(Array.map uplinks ~f:(Signal.id)) in
   let xpu_process () =
     let open Sim in
     let open Link_signal.Link_value in
+    (* Establish uplinks *)
     let establish_conn i u =
       let status = next_state !!u.status in
       let delay = get_delay !!u.status in
       let lv = make_t xpu_id dsts.(i) status in
       (u <--- lv) ~delay
     in
-    Array.iteri uplinks ~f:establish_conn
+    Array.iteri uplinks ~f:establish_conn;
+    (* Listen on downlinks *)
   in
-  Array.to_list uplinks, Process.create (Array.to_list uplink_ids) xpu_process
+  Process.create (Array.to_list uplink_ids) xpu_process
 ;;
 
 let () =
-  let ls0, xpu0 = make_xpu 0 [| 1 |] in
-  let ls1, xpu1 = make_xpu 1 [| 0 |] in
-  let ds0 = List.map ls0 ~f:(Sim.Debug.print_signal "xpu0_link") in
-  let ds1 = List.map ls1 ~f:(Sim.Debug.print_signal "xpu1_link") in
-  let xpus = [ xpu0; xpu1 ] @ ds0 @ ds1 in
+  let xpu0_dsts = [|1|] in
+  let xpu1_dsts = [|0|] in
+  let ls0 = make_uplinks xpu0_dsts in
+  let ls1 = make_uplinks xpu1_dsts in
+  let xpu0 = make_xpu 0 ls0 xpu0_dsts in
+  let xpu1 = make_xpu 1 ls1 xpu1_dsts in
+  let ds0 = Array.map ls0 ~f:(Sim.Debug.print_signal "xpu0_link") in
+  let ds1 = Array.map ls1 ~f:(Sim.Debug.print_signal "xpu1_link") in
+  let xpus = [ xpu0; xpu1 ] @ Array.to_list ds0 @ Array.to_list ds1 in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:5;
 ;;
