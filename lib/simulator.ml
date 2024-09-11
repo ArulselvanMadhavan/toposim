@@ -1,6 +1,5 @@
 open Core
 
-(* Value_S - where it's used? *)
 module type Value_S = sig
   type t [@@deriving sexp_of]
 
@@ -13,7 +12,6 @@ module type Value_S = sig
   val initial_value : t
 end
 
-(* delta step - time and delta *)
 module Delta_step = struct
   type t =
     { time : int
@@ -25,14 +23,12 @@ module Delta_step = struct
   let before_zero = { time = 0; delta = -1 }
 end
 
-(* process id *)
 module Process_id = struct
   type t = int [@@deriving hash, compare, sexp]
 
   let empty = -1
 end
 
-(* signal id *)
 module Signal_id = struct
   (* Signal_id is only used in sensitivity lists - we only need to be able to modify
      on_change list. *)
