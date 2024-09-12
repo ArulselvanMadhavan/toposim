@@ -3,6 +3,7 @@ module Sim = Toposim.Simulator
 module Signal = Sim.Signal
 module Process = Sim.Process
 module Async = Sim.Async
+module Debug = Sim.Debug
 
 module Link_signal = struct
   module Link_value = struct
@@ -63,64 +64,77 @@ let make_links dsts =
     Signal.create (module Link_signal.Link_value))
 ;;
 
-let make_xpu xpu_id link_mat dst_mat =
+let make_xpu link_mat dst_mat xpu_id =
+  (* Each xpu can create multiple processes *)
+  (* A process can create another process but we are not doing that now *)
+  (* uplink processes - sensitive to all signals for which it's the src *)
+  (* downlink processes - listen to changes from processes for which it's the dst *)
+  let open Sim in
+  let open Link_signal.Link_value in
+  let _ = InUse in
+  let uls = link_mat.(xpu_id) in
+  let ul_ids = Array.map uls ~f:(Signal.id) in
   let dsts = dst_mat.(xpu_id) in
-  let xpu_process () =
-    let open Sim in
-    let open Link_signal.Link_value in
+  let handle_ul () =
     (* Establish uplinks *)
-    let establish_conn i u =
-      let status, update_time =
-        match !!u.status with
-        | Undefined -> Connecting, (Async.current_time ())
-        | x -> x, !!u.update_time
-      in
-      let delay = get_delay !!u.status in
-      let lv = make_t xpu_id dsts.(i) status update_time in
-      (u <--- lv) ~delay;
+    let establish_conn i ul =
+      match !!ul.status with
+      | Undefined ->
+        let delay = get_delay Undefined in
+        let lv = make_t xpu_id dsts.(i) Connecting (Async.current_time ()) in
+        (ul <--- lv) ~delay;
+      | _ -> ()
     in
-    let uplinks = link_mat.(xpu_id) in
-    Array.iteri uplinks ~f:establish_conn;
-    (* Listen on downlinks *)
-    let listen_conn d =
-      let open Link_signal.Link_value in
-      let _x = InUse in
-      let dsts_from_d = dst_mat.(d) in
-      let uplinks_from_d = link_mat.(d) in
-      let dlink_id, _ = Array.findi_exn dsts_from_d ~f:(fun _i a -> Int.(a = xpu_id)) in
-      let xpu_dlink = uplinks_from_d.(dlink_id) in
-      let handle_dlink dl =
-        let open Async in
-        let%map () = wait_for_change (Signal.id dl) in
-        let delay = get_delay !!dl.status in
-        let (status, update_time) =
-          match !!dl.status with
-          | Connecting -> Ready, current_time ()
-          | x -> x, !!dl.update_time
-        in
-        let new_lv = { !!dl with status; update_time } in
-        (dl <--- new_lv) ~delay
-      in
-      handle_dlink xpu_dlink
-    in
-    let dl_handlers = Array.map dsts ~f:listen_conn in
-    Async.Deferred.all_unit (Array.to_list dl_handlers)
+    Array.iteri uls ~f:establish_conn
   in
-  Async.create_process xpu_process
+  let ul_proc = Process.create (Array.to_list ul_ids) (handle_ul) in
+  let dls = Array.map dsts ~f:(fun d ->
+      let dsts_from_d = dst_mat.(d) in
+      let uls_from_d = link_mat.(d) in
+      let dlinks = Array.zip_exn dsts_from_d uls_from_d in
+      let (_, dlink) = Array.find_exn dlinks ~f:(fun (d, _) -> Int.(d = xpu_id)) in
+      dlink
+    )
+  in
+  let dl_ids = Array.map dls ~f:(Signal.id) in
+  let handle_dls () =
+    let handle_dl dl =
+    (match !!dl.status with
+    | Connecting ->
+      let delay = get_delay !!dl.status in
+      let lv = {!!dl with status = Ready; update_time = Async.current_time ()} in
+      (dl <--- lv) ~delay
+    | _ -> ())
+    in
+    Array.iter dls ~f:handle_dl
+  in
+  let dl_proc = Process.create (Array.to_list dl_ids) (handle_dls) in
+  [ul_proc; dl_proc]
+
 ;;
 
+let find_neighbors n conn xpu_id =
+  match conn with
+  | `All2All ->
+    let xs = Array.init n ~f:(fun id -> if Int.(id <> xpu_id) then id else -1) in
+    Array.filter xs ~f:(fun x -> Int.(x <> -1))
+;;
+
+let num_xpus = 5
+
 let () =
-  let xpu0_dsts = [| 1 |] in
-  let xpu1_dsts = [| 0 |] in
-  let ls0 = make_links xpu0_dsts in
-  let ls1 = make_links xpu1_dsts in
-  let link_mat = [| ls0; ls1 |] in
-  let dst_mat = [| xpu0_dsts; xpu1_dsts |] in
-  let xpu0 = make_xpu 0 link_mat dst_mat in
-  let xpu1 = make_xpu 1 link_mat dst_mat in
-  let ds0 = Array.map ls0 ~f:(Sim.Debug.print_signal "xpu0_link") in
-  let ds1 = Array.map ls1 ~f:(Sim.Debug.print_signal "xpu1_link") in
-  let xpus = [ xpu0; xpu1 ] @ Array.to_list ds0 @ Array.to_list ds1 in
+  let dst_mat = Array.init num_xpus ~f:(find_neighbors num_xpus `All2All) in
+  let link_mat = Array.map dst_mat ~f:make_links in
+  let xpus = Array.init num_xpus ~f:(make_xpu link_mat dst_mat) in
+  let dbg_mat =
+    Array.mapi link_mat ~f:(fun i ->
+      Array.map ~f:(Debug.print_signal ("xpu_link" ^ Int.to_string i)))
+  in
+  let dbgs =
+    Array.fold dbg_mat ~init:[] ~f:(Fn.flip List.cons) |> Array.concat |> Array.to_list
+  in
+  let xpus = Array.fold xpus ~init:[] ~f:(Fn.flip List.cons) |> List.concat in
+  let xpus = xpus @ dbgs in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:8
 ;;
