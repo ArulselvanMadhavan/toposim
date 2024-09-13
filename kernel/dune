@@ -1,0 +1,5 @@
+(library
+ (name event_driven_sim)
+ (libraries core core_kernel.pairing_heap)
+ (preprocess
+  (pps ppx_jane)))

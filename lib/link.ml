@@ -55,10 +55,11 @@ module Link_signal = struct
   end
 end
 
-let downlinks_for_xpu xpu_id dst_mat link_mat = Array.map dst_mat.(xpu_id) ~f:(fun d ->
+let downlinks_for_xpu xpu_id dst_mat link_mat =
+  Array.map dst_mat.(xpu_id) ~f:(fun d ->
     let dsts_from_d = dst_mat.(d) in
     let uls_from_d = link_mat.(d) in
     let dlinks = Array.zip_exn dsts_from_d uls_from_d in
-    let (_, dlink) = Array.find_exn dlinks ~f:(fun (d, _) -> Int.(d = xpu_id)) in
-    dlink
-  )
+    let _, dlink = Array.find_exn dlinks ~f:(fun (d, _) -> Int.(d = xpu_id)) in
+    dlink)
+;;

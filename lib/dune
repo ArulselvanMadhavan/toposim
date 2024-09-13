@@ -1,5 +1,5 @@
 (library
  (name toposim)
- (libraries core core_kernel.pairing_heap)
+ (libraries event_driven_sim)
  (preprocess
   (pps ppx_jane)))

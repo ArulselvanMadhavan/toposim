@@ -1,9 +1,11 @@
 open Base
-module Sim = Toposim.Simulator
+module Sim = Event_driven_sim.Simulator
 module Signal = Sim.Signal
 module Process = Sim.Process
 module Async = Sim.Async
 module Debug = Sim.Debug
+module Link = Toposim.Link
+module Ccl = Toposim.Ccl
 open Link
 
 let make_links dsts =
@@ -16,7 +18,7 @@ let make_xpu link_mat dst_mat xpu_id =
   let open Link_signal.Link_value in
   (* Uplink Process *)
   let uls = link_mat.(xpu_id) in
-  let ul_ids = Array.map uls ~f:(Signal.id) in
+  let ul_ids = Array.map uls ~f:Signal.id in
   let dsts = dst_mat.(xpu_id) in
   let handle_ul () =
     (* Establish uplinks *)
@@ -25,29 +27,28 @@ let make_xpu link_mat dst_mat xpu_id =
       | Undefined ->
         let delay = get_delay Undefined in
         let lv = make_t xpu_id dsts.(i) Connecting (Async.current_time ()) in
-        (ul <--- lv) ~delay;
+        (ul <--- lv) ~delay
       | _ -> ()
     in
     Array.iteri uls ~f:establish_conn
   in
-  let ul_proc = Process.create (Array.to_list ul_ids) (handle_ul) in
-  (* Downlink process  *)
+  let ul_proc = Process.create (Array.to_list ul_ids) handle_ul in
+  (* Downlink process *)
   let dls = Link.downlinks_for_xpu xpu_id dst_mat link_mat in
-  let dl_ids = Array.map dls ~f:(Signal.id) in
+  let dl_ids = Array.map dls ~f:Signal.id in
   let handle_dls () =
     let handle_dl dl =
-    (match !!dl.status with
-    | Connecting ->
-      let delay = get_delay !!dl.status in
-      let lv = {!!dl with status = Ready; update_time = Async.current_time ()} in
-      (dl <--- lv) ~delay
-    | _ -> ())
+      match !!dl.status with
+      | Connecting ->
+        let delay = get_delay !!dl.status in
+        let lv = { !!dl with status = Ready; update_time = Async.current_time () } in
+        (dl <--- lv) ~delay
+      | _ -> ()
     in
     Array.iter dls ~f:handle_dl
   in
-  let dl_proc = Process.create (Array.to_list dl_ids) (handle_dls) in
-  [ul_proc; dl_proc]
-
+  let dl_proc = Process.create (Array.to_list dl_ids) handle_dls in
+  [ ul_proc; dl_proc ]
 ;;
 
 let find_neighbors n conn xpu_id =

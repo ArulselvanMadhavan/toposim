@@ -3,4 +3,4 @@
  (name main)
  (preprocess
   (pps ppx_jane ppx_let))
- (libraries toposim))
+ (libraries event_driven_sim toposim))
