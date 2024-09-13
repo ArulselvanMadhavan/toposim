@@ -12,10 +12,6 @@ let make_links dsts =
 ;;
 
 let make_xpu link_mat dst_mat xpu_id =
-  (* Each xpu can create multiple processes *)
-  (* A process can create another process but we are not doing that now *)
-  (* uplink processes - sensitive to all signals for which it's the src *)
-  (* downlink processes - listen to changes from processes for which it's the dst *)
   let open Sim in
   let open Link_signal.Link_value in
   (* Uplink Process *)
