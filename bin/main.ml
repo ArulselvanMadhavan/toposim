@@ -6,6 +6,7 @@ module Async = Sim.Async
 module Debug = Sim.Debug
 module Link = Toposim.Link
 module Ccl = Toposim.Ccl
+module Conn_type = Toposim.Conn_type
 open Link
 
 let make_links dsts =
@@ -53,15 +54,18 @@ let make_xpu link_mat dst_mat xpu_id =
 
 let find_neighbors n conn xpu_id =
   match conn with
-  | `All2All ->
+  | Conn_type.All2All ->
     let xs = Array.init n ~f:(fun id -> if Int.(id <> xpu_id) then id else -1) in
     Array.filter xs ~f:(fun x -> Int.(x <> -1))
+  | Conn_type.Ring ->
+    [|(xpu_id + 1) % n|]
 ;;
 
 let num_xpus = 5
+let conn = Conn_type.All2All
 
 let () =
-  let dst_mat = Array.init num_xpus ~f:(find_neighbors num_xpus `All2All) in
+  let dst_mat = Array.init num_xpus ~f:(find_neighbors num_xpus conn) in
   let link_mat = Array.map dst_mat ~f:make_links in
   let xpus = Array.init num_xpus ~f:(make_xpu link_mat dst_mat) in
   let dbg_mat =
@@ -72,7 +76,7 @@ let () =
     Array.fold dbg_mat ~init:[] ~f:(Fn.flip List.cons) |> Array.concat |> Array.to_list
   in
   let xpus = Array.fold xpus ~init:[] ~f:(Fn.flip List.cons) |> List.concat in
-  let comms = Ccl.reduce_scatter num_xpus `All2All (num_xpus * 100) dst_mat link_mat in
+  let comms = Ccl.reduce_scatter num_xpus conn (num_xpus * 100) dst_mat link_mat in
   let xpus = xpus @ comms @ dbgs in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:200
