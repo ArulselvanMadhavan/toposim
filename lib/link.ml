@@ -7,7 +7,7 @@ module Link_signal = struct
       | Connecting
       | Ready
       | Sending of int
-      | Receiving
+      | Received
       | Complete
     [@@deriving equal, sexp_of, compare]
 
@@ -48,7 +48,7 @@ module Link_signal = struct
     let initial_value = undefined
 
     let get_delay = function
-      | Undefined | Connecting | Ready -> 1
+      | Undefined | Connecting | Ready | Received | Complete -> 1
       | _ -> 0
     ;;
 

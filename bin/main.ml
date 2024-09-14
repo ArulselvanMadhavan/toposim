@@ -60,8 +60,8 @@ let find_neighbors n conn xpu_id =
   | Conn_type.Ring -> [| (xpu_id + 1) % n |]
 ;;
 
-let num_xpus = 5
-let conn = Conn_type.All2All
+let num_xpus = 3
+let conn = Conn_type.Ring
 
 let () =
   let dst_mat = Array.init num_xpus ~f:(find_neighbors num_xpus conn) in
@@ -78,5 +78,5 @@ let () =
   let comms = Ccl.reduce_scatter num_xpus conn (num_xpus * 100) dst_mat link_mat in
   let xpus = xpus @ comms @ dbgs in
   let xpusim = Sim.create xpus in
-  Sim.run xpusim ~time_limit:200
+  Sim.run xpusim ~time_limit:15000
 ;;
