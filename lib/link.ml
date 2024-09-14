@@ -7,6 +7,7 @@ module Link_signal = struct
       | Connecting
       | Ready
       | Sending of int
+      | Receiving
       | Complete
     [@@deriving equal, sexp_of, compare]
 
@@ -55,11 +56,11 @@ module Link_signal = struct
   end
 end
 
+(* Go through every every xpu dsts. Filter and find links for which this node is the src *)
 let downlinks_for_xpu xpu_id dst_mat link_mat =
-  Array.map dst_mat.(xpu_id) ~f:(fun d ->
-    let dsts_from_d = dst_mat.(d) in
-    let uls_from_d = link_mat.(d) in
-    let dlinks = Array.zip_exn dsts_from_d uls_from_d in
-    let _, dlink = Array.find_exn dlinks ~f:(fun (d, _) -> Int.(d = xpu_id)) in
-    dlink)
+  let open Option.Let_syntax in
+  Array.filter_mapi dst_mat ~f:(fun src_xpu_id dsts ->
+    let src_links = link_mat.(src_xpu_id) in
+    let%map i, _ = Array.findi dsts ~f:(fun _i d -> Int.(d = xpu_id)) in
+    src_links.(i))
 ;;

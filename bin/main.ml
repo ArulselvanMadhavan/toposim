@@ -36,6 +36,8 @@ let make_xpu link_mat dst_mat xpu_id =
   let ul_proc = Process.create (Array.to_list ul_ids) handle_ul in
   (* Downlink process *)
   let dls = Link.downlinks_for_xpu xpu_id dst_mat link_mat in
+  Stdio.printf "DL:%d|%d\n" xpu_id (Array.length dls);
+  Stdlib.flush_all ();
   let dl_ids = Array.map dls ~f:Signal.id in
   let handle_dls () =
     let handle_dl dl =
@@ -57,12 +59,11 @@ let find_neighbors n conn xpu_id =
   | Conn_type.All2All ->
     let xs = Array.init n ~f:(fun id -> if Int.(id <> xpu_id) then id else -1) in
     Array.filter xs ~f:(fun x -> Int.(x <> -1))
-  | Conn_type.Ring ->
-    [|(xpu_id + 1) % n|]
+  | Conn_type.Ring -> [| (xpu_id + 1) % n |]
 ;;
 
 let num_xpus = 5
-let conn = Conn_type.All2All
+let conn = Conn_type.Ring
 
 let () =
   let dst_mat = Array.init num_xpus ~f:(find_neighbors num_xpus conn) in
