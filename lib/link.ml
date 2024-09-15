@@ -64,3 +64,65 @@ let downlinks_for_xpu xpu_id dst_mat link_mat =
     let%map i, _ = Array.findi dsts ~f:(fun _i d -> Int.(d = xpu_id)) in
     src_links.(i))
 ;;
+
+let build_trace coll_name link_mat =
+  let open Perfetto.Trace in
+  let make_uuid () = Random.bits64 () |> Option.Some in
+  let trace_all = Array.init (Array.length link_mat) ~f:(fun _ -> [||]) in
+  Array.iteri link_mat ~f:(fun xpu_id _uls ->
+    let uuid = make_uuid () in
+    let process_name = "XPU_" ^ Int.to_string xpu_id |> Option.Some in
+    let pid = Int32.of_int xpu_id in
+    let process = default_process_descriptor ~pid ~process_name () |> Option.Some in
+    let tr_desc = default_track_descriptor ~uuid ~process () in
+    let data = Track_descriptor tr_desc in
+    let proc_pkt = default_trace_packet ~data () in
+    let parent_uuid = uuid in
+    let uuid = make_uuid () in
+    let thread_name = Some coll_name in
+    let thread =
+      default_thread_descriptor ~pid ~tid:(Int32.of_int 1) ~thread_name () |> Option.Some
+    in
+    let tr_desc = default_track_descriptor ~uuid ~parent_uuid ~thread () in
+    let data = Track_descriptor tr_desc in
+    let thr_pkt = default_trace_packet ~data () in
+    let event_slice () =
+      let type_ = Some Type_slice_begin in
+      let track_uuid = make_uuid () in
+      let name_field : track_event_name_field = Name "parent" in
+      let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
+      let optional_trusted_packet_sequence_id =
+        Trusted_packet_sequence_id (Int32.of_int_exn ((31 * xpu_id) + 1))
+      in
+      let start_pkt =
+        default_trace_packet
+          ~timestamp_clock_id:(Some Int32.one)
+          ~data
+          ~optional_trusted_packet_sequence_id
+          ()
+      in
+      let type_ = Some Type_slice_end in
+      let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
+      let end_pkt =
+        default_trace_packet
+          ~timestamp_clock_id:(Int32.of_int 24)
+          ~data
+          ~optional_trusted_packet_sequence_id
+          ()
+      in
+      [| start_pkt; end_pkt |]
+    in
+    let evt_pkts = event_slice () in
+    trace_all.(xpu_id) <- Array.append [| proc_pkt; thr_pkt |] evt_pkts);
+  let packet =
+    Array.fold trace_all ~init:[] ~f:(Fn.flip List.cons)
+    |> List.rev
+    |> Array.concat
+    |> Array.to_list
+  in
+  let trace = default_trace ~packet () in
+  let encoder = Pbrt.Encoder.create () in
+  encode_pb_trace trace encoder;
+  Stdio.Out_channel.with_file "toposim.perfetto" ~f:(fun oc ->
+    Stdio.Out_channel.output_bytes oc (Pbrt.Encoder.to_bytes encoder))
+;;

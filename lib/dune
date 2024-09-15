@@ -1,5 +1,5 @@
 (library
  (name toposim)
- (libraries event_driven_sim)
+ (libraries event_driven_sim perfetto pbrt)
  (preprocess
   (pps ppx_jane)))
