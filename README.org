@@ -1,4 +1,16 @@
+* Groundrules
+- Each link is served by two signals
+- A signal is monitored for events like connecting, ready, send, receive, complete
+- Terminals and switches are numbered
+- Switch are numbered first
+- terminals are assigned a number -> switch_count + (terminal_count * switch_id) + term_idx
 * XPU
 - Each XPU is responsible for establishing uplink connection
 - Each XPU is responsible for accepting downlink connection
 - Add conn type
+* HyperX
+- P = number of switches
+- n = number of dims
+- T = number of terminals
+- N = number of nodes = (P * T)
+- (T, M, K, n)

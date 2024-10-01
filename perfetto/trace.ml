@@ -49,7 +49,6 @@ and trace_packet_optional_trusted_packet_sequence_id =
 
 and trace_packet =
   { timestamp : int64 option
-  ; timestamp_clock_id : int32 option
   ; data : trace_packet_data
   ; optional_trusted_packet_sequence_id : trace_packet_optional_trusted_packet_sequence_id
   }
@@ -116,14 +115,13 @@ and default_trace_packet_optional_trusted_packet_sequence_id ()
 
 and default_trace_packet
   ?(timestamp : int64 option = None)
-  ?(timestamp_clock_id : int32 option = None)
   ?(data : trace_packet_data = Track_event (default_track_event ()))
   ?(optional_trusted_packet_sequence_id : trace_packet_optional_trusted_packet_sequence_id =
     Trusted_packet_sequence_id 0l)
   ()
   : trace_packet
   =
-  { timestamp; timestamp_clock_id; data; optional_trusted_packet_sequence_id }
+  { timestamp; data; optional_trusted_packet_sequence_id }
 ;;
 
 let rec default_trace ?(packet : trace_packet list = []) () : trace = { packet }
@@ -176,7 +174,6 @@ let default_track_descriptor_mutable () : track_descriptor_mutable =
 
 type trace_packet_mutable =
   { mutable timestamp : int64 option
-  ; mutable timestamp_clock_id : int32 option
   ; mutable data : trace_packet_data
   ; mutable optional_trusted_packet_sequence_id :
       trace_packet_optional_trusted_packet_sequence_id
@@ -184,7 +181,6 @@ type trace_packet_mutable =
 
 let default_trace_packet_mutable () : trace_packet_mutable =
   { timestamp = None
-  ; timestamp_clock_id = None
   ; data = Track_event (default_track_event ())
   ; optional_trusted_packet_sequence_id = Trusted_packet_sequence_id 0l
   }
@@ -336,11 +332,6 @@ and encode_pb_trace_packet (v : trace_packet) encoder =
    | Some x ->
      Pbrt.Encoder.int64_as_varint x encoder;
      Pbrt.Encoder.key 8 Pbrt.Varint encoder
-   | None -> ());
-  (match v.timestamp_clock_id with
-   | Some x ->
-     Pbrt.Encoder.int32_as_varint x encoder;
-     Pbrt.Encoder.key 58 Pbrt.Varint encoder
    | None -> ());
   (match v.data with
    | Track_event x ->
@@ -564,10 +555,6 @@ and decode_pb_trace_packet d =
       continue__ := false
     | Some (8, Pbrt.Varint) -> v.timestamp <- Some (Pbrt.Decoder.int64_as_varint d)
     | Some (8, pk) -> Pbrt.Decoder.unexpected_payload "Message(trace_packet), field(8)" pk
-    | Some (58, Pbrt.Varint) ->
-      v.timestamp_clock_id <- Some (Pbrt.Decoder.int32_as_varint d)
-    | Some (58, pk) ->
-      Pbrt.Decoder.unexpected_payload "Message(trace_packet), field(58)" pk
     | Some (11, Pbrt.Bytes) ->
       v.data <- Track_event (decode_pb_track_event (Pbrt.Decoder.nested d))
     | Some (11, pk) ->
@@ -584,7 +571,6 @@ and decode_pb_trace_packet d =
     | Some (_, payload_kind) -> Pbrt.Decoder.skip d payload_kind
   done;
   ({ timestamp = v.timestamp
-   ; timestamp_clock_id = v.timestamp_clock_id
    ; data = v.data
    ; optional_trusted_packet_sequence_id = v.optional_trusted_packet_sequence_id
    }

@@ -1,6 +1,6 @@
 (** Code for trace.proto *)
 
-(* generated from "protos/trace.proto", do not edit *)
+(* generated from "../toposim/protos/trace.proto", do not edit *)
 
 (** {2 Types} *)
 
@@ -53,7 +53,6 @@ and trace_packet_optional_trusted_packet_sequence_id =
 
 and trace_packet =
   { timestamp : int64 option
-  ; timestamp_clock_id : int32 option
   ; data : trace_packet_data
   ; optional_trusted_packet_sequence_id : trace_packet_optional_trusted_packet_sequence_id
   }
@@ -117,7 +116,6 @@ val default_trace_packet_optional_trusted_packet_sequence_id
 (** [default_trace_packet ()] is the default value for type [trace_packet] *)
 val default_trace_packet
   :  ?timestamp:int64 option
-  -> ?timestamp_clock_id:int32 option
   -> ?data:trace_packet_data
   -> ?optional_trusted_packet_sequence_id:trace_packet_optional_trusted_packet_sequence_id
   -> unit

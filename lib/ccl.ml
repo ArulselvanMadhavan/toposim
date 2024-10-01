@@ -95,6 +95,7 @@ let ring_send_receive n payload dst_mat link_mat =
 
 let reduce_scatter n conn payload dst_mat link_mat =
   match conn with
-  | Conn_type.All2All -> all2all_send_receive n payload dst_mat link_mat
-  | Conn_type.Ring -> ring_send_receive n payload dst_mat link_mat
+  | Conn_type.All2All _ -> all2all_send_receive n payload dst_mat link_mat
+  | Conn_type.Ring _ -> ring_send_receive n payload dst_mat link_mat
+  | _ -> []
 ;;
