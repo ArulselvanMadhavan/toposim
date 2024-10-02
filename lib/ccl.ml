@@ -5,6 +5,8 @@ module Process = Sim.Process
 module Async = Sim.Async
 open Sim
 
+let pf = Stdio.printf
+
 let update_status link nxt_sts =
   let open Link.Link_signal.Link_value in
   let delay = get_delay !!link.status in
@@ -60,9 +62,9 @@ let all2all_send_receive n payload dst_mat link_mat =
   make_procs_list [ send_procs; recv_procs ]
 ;;
 
-let ring_send_receive n payload _dst_mat _link_mat =
-  let open Sim in
-  let open Link.Link_signal.Link_value in
+let ring_send_receive _n _payload dst_mat link_mat =
+  let open! Sim in
+  let open! Link.Link_signal.Link_value in
   (* 1. get terminal uplinks which is equal to switch downlinks.*)
   (* 2. for each switch_id, collect downlinks
      3. on the downlinks for switch, initiate a send
@@ -79,57 +81,50 @@ let ring_send_receive n payload _dst_mat _link_mat =
      so, total signals should 2 * links
   *)
   (* dst_sw -> switch_count x out_degree_switches + switch_count x terminal *)
-  let send_proc links =
-    (* in all these links initiate a send from link_src to link_dst *)
-    let payload = payload / n in
-    let send_time = payload / 1 in
-    let ul_ids = Array.map links ~f:Signal.id in
-    let send_wrapper () =
-      let handle_send ul =
-        match !!ul.status with
-        | Ready -> update_status ul (Sending send_time)
-        | Received -> update_status ul Complete
-        | _ -> ()
-      in
-      Array.iter links ~f:handle_send
-    in
-    Process.create (Array.to_list ul_ids) send_wrapper
+  (* ccl process has access to signals. Responsible for changing some states on the signals *)
+  let run_stage dst_mat link_mat =
+    let _dst_sw_sw = dst_mat.(0) in
+    let _dst_sw_t = dst_mat.(1) in
+    let _dst_t_sw = dst_mat.(2) in
+    let _link_sw_sw = link_mat.(0) in
+    let _link_sw_t = link_mat.(1) in
+    let _link_t_sw = link_mat.(2) in
+    pf "T count:%d\n" (Array.length _dst_sw_t)
   in
-  send_proc [||]
+  (* let send_procs = *)
+  (*   Array.map link_mat ~f:(fun uls -> *)
+  (*     let payload = payload / n in *)
+  (*     let send_time = payload / 1 in *)
+  (*     (\* Create process *\) *)
+  (*     (\* Local counter to update - maintained outside the process *\) *)
+  (*     (\* Mark complete when counter is exhausted *\) *)
+  (*     let ul_ids = Array.map uls ~f:Signal.id in *)
+  (*     let counter = ref (n - 1) in *)
+  (*     let send_n_times () = *)
+  (*       let handle_send ul = *)
+  (*         match !!ul.status with *)
+  (*         | Ready -> *)
+  (*           counter := !counter - 1; *)
+  (*           update_status ul (Sending send_time) *)
+  (*         | Received when Int.(!counter = 0) -> update_status ul Complete *)
+  (*         | Received -> *)
+  (*           counter := !counter - 1; *)
+  (*           update_status ul (Sending send_time) *)
+  (*         | _ -> () *)
+  (*       in *)
+  (*       Array.iter uls ~f:handle_send *)
+  (*     in *)
+  (*     Process.create (Array.to_list ul_ids) send_n_times) *)
+  (* in *)
+  (* let recv_procs = make_recv_procs n dst_mat link_mat in *)
+  (* make_procs_list [ send_procs; recv_procs ] *)
+  run_stage dst_mat link_mat;
+  []
 ;;
 
-(* let send_procs = *)
-(*   Array.map link_mat ~f:(fun uls -> *)
-(*     let payload = payload / n in *)
-(*     let send_time = payload / 1 in *)
-(*     (\* Create process *\) *)
-(*     (\* Local counter to update - maintained outside the process *\) *)
-(*     (\* Mark complete when counter is exhausted *\) *)
-(*     let ul_ids = Array.map uls ~f:Signal.id in *)
-(*     let counter = ref (n - 1) in *)
-(*     let send_n_times () = *)
-(*       let handle_send ul = *)
-(*         match !!ul.status with *)
-(*         | Ready -> *)
-(*           counter := !counter - 1; *)
-(*           update_status ul (Sending send_time) *)
-(*         | Received when Int.(!counter = 0) -> update_status ul Complete *)
-(*         | Received -> *)
-(*           counter := !counter - 1; *)
-(*           update_status ul (Sending send_time) *)
-(*         | _ -> () *)
-(*       in *)
-(*       Array.iter uls ~f:handle_send *)
-(*     in *)
-(*     Process.create (Array.to_list ul_ids) send_n_times) *)
-(* in *)
-(* let recv_procs = make_recv_procs n dst_mat link_mat in *)
-(* make_procs_list *)
-(* [ send_procs; recv_procs ] *)
-
-let reduce_scatter conn _payload _dst_mat _link_mat =
+let reduce_scatter conn payload dst_mat link_mat =
   match conn with
   (* | Conn_type.All2All _ -> all2all_send_receive n payload dst_mat link_mat *)
-  | Conn_type.Ring _n -> [] (* ring_send_receive n payload dst_mat link_mat *)
+  | Conn_type.Ring n -> ring_send_receive n payload dst_mat link_mat
   | _ -> []
 ;;

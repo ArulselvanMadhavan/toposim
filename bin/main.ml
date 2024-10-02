@@ -130,6 +130,8 @@ let transpose mat =
   tmat
 ;;
 
+let shape_str mat = pf "%d,%d\n" (Array.length mat) (Array.length mat.(0))
+
 let routing_table = function
   | Conn_type.HyperX (_, _, _) as _hx -> [||]
   | Conn_type.Ring n as r ->
@@ -138,11 +140,14 @@ let routing_table = function
     let p = Conn_type.switch_count r in
     (* two signals per link. *)
     (* take one signal for every link visible from the switch  *)
-    Array.init p ~f:(fun sw_id ->
-      let terminals = Array.init t ~f:(fun t_id -> p + (sw_id * t) + t_id) in
-      let switches = [| (n + sw_id - 1) % n; (sw_id + 1) % n |] in
-      assert (Array.length switches + Array.length terminals = d);
-      switches, terminals)
+    let result =
+      Array.init p ~f:(fun sw_id ->
+        let terminals = Array.init t ~f:(fun t_id -> p + (sw_id * t) + t_id) in
+        let switches = [| (n + sw_id - 1) % n; (sw_id + 1) % n |] in
+        assert (Array.length switches + Array.length terminals = d);
+        switches, terminals)
+    in
+    result
   | _ -> [||]
 ;;
 
@@ -164,14 +169,14 @@ let add_debug links node_type =
 let () =
   let dst_mat = routing_table conn in
   let dst_sw_sw, dst_sw_t = Base.Array.unzip dst_mat in
+  shape_str dst_sw_sw;
+  shape_str dst_sw_t;
   let dst_t_sw = transpose dst_sw_t in
+  shape_str dst_t_sw;
   let all_dst_mats = [| dst_sw_sw; dst_sw_t; dst_t_sw |] in
   let all_link_mats = Array.map ~f:make_links all_dst_mats in
   let procs_sw_sw = make_procs `Switch_to_Switch dst_sw_sw all_link_mats.(0) in
-  (* let switches = Array.init (Array.length dst_sw) ~f:(make_xpu link_sw dst_sw `Switch) in *)
-  (* let terminals = Array.init (Array.length dst_t) ~f:(make_xpu link_t dst_t `Terminal) in *)
   let dbg_sw = add_debug all_link_mats.(0) `Switch_to_Switch in
-  (* let dbg_t = add_debug link_t `Terminal in *)
   let dbgs =
     Array.fold (Array.concat [ dbg_sw ]) ~init:[] ~f:(Fn.flip List.cons)
     |> Array.concat
@@ -180,9 +185,9 @@ let () =
   let switch_procs = Array.to_list procs_sw_sw in
   (* Array.fold (Array.concat [ procs_sw_sw ]) ~init:[] ~f:(Fn.flip List.cons) *)
   (* |> List.concat *)
-  (* let comms = Ccl.reduce_scatter conn (4 * 100) dst_mat (link_sw, link_t) in *)
+  let comms = Ccl.reduce_scatter conn (4 * 100) dst_sw_sw all_link_mats.(0) in
   (* Link.build_trace "reduce_scatter" link_mat; *)
-  let xpus = switch_procs @ dbgs in
+  let xpus = switch_procs @ dbgs @ comms in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:1500
 ;;
