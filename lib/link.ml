@@ -56,11 +56,29 @@ module Link_signal = struct
   end
 end
 
+let pf = Stdio.printf
+
+let downlinks_from_terminals xpu_id dst_mat link_mat =
+  let open Option.Let_syntax in
+  let total_switches = Array.length dst_mat in
+  Array.filter_mapi dst_mat ~f:(fun src_xpu_id dsts ->
+    let src_links = link_mat.(src_xpu_id) in
+    let term_per_switch = Array.length dsts in
+    let switch_id_of_term_id term_idx term_id =
+      (term_id - term_idx - total_switches) / term_per_switch
+    in
+    let dsts = Array.mapi dsts ~f:switch_id_of_term_id in
+    (* Array.iter dsts ~f:(fun dest -> pf "downlink:source:%d|dest_mat_idx:%d|dest:%d|term_id_to_src:\n" xpu_id src_xpu_id dest); *)
+    let%map i, _ = Array.findi dsts ~f:(fun _i d -> Int.(d = xpu_id)) in
+    src_links.(i))
+;;
+
 (* Go through every every xpu dsts. Filter and find links for which this node is the src *)
-let downlinks_for_xpu xpu_id dst_mat link_mat =
+let downlinks_for_xpu dst_mat link_mat xpu_id =
   let open Option.Let_syntax in
   Array.filter_mapi dst_mat ~f:(fun src_xpu_id dsts ->
     let src_links = link_mat.(src_xpu_id) in
+    (* Array.iter dsts ~f:(fun dest -> pf "downlink:source:%d|dest_mat_idx:%d|dest:%d|term_id_to_src:\n" xpu_id src_xpu_id dest); *)
     let%map i, _ = Array.findi dsts ~f:(fun _i d -> Int.(d = xpu_id)) in
     src_links.(i))
 ;;
