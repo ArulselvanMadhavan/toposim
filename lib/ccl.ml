@@ -154,8 +154,8 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
           (ul <--- lv) ~delay
         | Ready when Int.(!!ul.buffer > 0) -> update_status ul (Sending send_time)
         | Received when Int.(!!ul.buffer > 0) ->
-          let lv = { !!ul with buffer = 0; update_time = Async.current_time ()} in
-          (ul <--- lv) ~delay:0
+          let lv = { !!ul with buffer = 0; update_time = Async.current_time () } in
+          (ul <--- lv) ~delay:buffer_clear_delay
         | _ -> ()
       in
       Array.iter uls ~f:handle_fill
@@ -182,8 +182,8 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
       in
       Array.iter all_dls ~f:handle_term_dl
     in
-    let dls_proc = Process.create dl_ids term_dls_proc in
-    [| dls_proc |]
+    let tdls_proc = Process.create dl_ids term_dls_proc in
+    [| tdls_proc |]
   in
   let sw_to_t_lmat = all_link_mats.(sw_to_t_idx) in
   let sw_to_sw_lmat = all_link_mats.(sw_to_sw_idx) in

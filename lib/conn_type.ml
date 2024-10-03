@@ -29,6 +29,7 @@ let degree = function
 let link_count = function
   | HyperX _ as hx -> degree hx * switch_count hx / 2
   | Ring n as r ->
+    (* Link here refers to a bidirectional link *)
     let terminal_links = 1 * n in
     let switch_links = 2 * switch_count r / 2 in
     terminal_links + switch_links

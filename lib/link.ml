@@ -87,6 +87,7 @@ module Link_signal = struct
     ;;
 
     let buffer_fill_delay payload = payload / 10
+    let buffer_clear_delay = 1
 
     let make_t src dst status time =
       Int.incr nextid;
