@@ -1,6 +1,9 @@
 open Base
 
 module Link_signal = struct
+  let undefined_link_id = -1
+  let nextid = ref undefined_link_id
+
   module Link_value = struct
     type link_status =
       | Undefined
@@ -12,22 +15,23 @@ module Link_signal = struct
     [@@deriving equal, sexp_of, compare]
 
     type t =
-      { src : int
+      { id:int; src : int
       ; dst : int
       ; status : link_status
       ; update_time : int
       }
     [@@deriving sexp_of, equal, compare, fields ~getters]
 
-    let undefined = { src = -1; dst = -1; status = Undefined; update_time = -1 }
+    let undefined = { id = undefined_link_id; src = -1; dst = -1; status = Undefined; update_time = -1 }
 
     let ( = ) l1 l2 =
-      let { src = l1_src; dst = l1_dst; status = l1_st; update_time = l1_ut } = l1 in
-      let { src = l2_src; dst = l2_dst; status = l2_st; update_time = l2_ut } = l2 in
+      (* If we miss a field here then updates to that field will not be visible *)
+      let { id = id1; src = l1_src; dst = l1_dst; status = l1_st; update_time = l1_ut } = l1 in
+      let { id = id2; src = l2_src; dst = l2_dst; status = l2_st; update_time = l2_ut } = l2 in
       Int.(l1_src = l2_src)
       && Int.(l1_dst = l2_dst)
       && equal_link_status l1_st l2_st
-      && Int.(l1_ut = l2_ut)
+      && Int.(l1_ut = l2_ut) && Int.(id1 = id2)
     ;;
 
     let resolve_value =
@@ -52,7 +56,10 @@ module Link_signal = struct
       | _ -> 0
     ;;
 
-    let make_t src dst status time = { src; dst; status; update_time = time }
+    let make_t src dst status time =
+      Int.incr nextid;
+      { id = !nextid; src; dst; status; update_time = time }
+    ;;
   end
 end
 

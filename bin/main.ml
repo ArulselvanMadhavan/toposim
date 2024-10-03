@@ -18,7 +18,7 @@ let flatten_mat mat =
   let dimy = Array.length mat.(0) in
   Array.init (dimx * dimy) ~f:(fun i ->
     let row_id = i / dimy in
-    let col_id = i - row_id * dimy in
+    let col_id = i - (row_id * dimy) in
     (* pf "flatten:%d|%d\n" row_id col_id; *)
     mat.(row_id).(col_id))
 ;;
@@ -78,26 +78,27 @@ let make_procs link_type dst_mat link_mat =
       Array.init
         (Array.length dst_mat)
         ~f:(Link.downlinks_from_terminals dst_mat link_mat)
-    | LT.TerminalToSwitch -> [||]
-
+    | LT.TerminalToSwitch ->
+      (* Every terminal has a downlink from exactly one switch
+         This may change in the future but for now
+      *)
+      _shape_str link_mat;
+      [||]
   in
   let get_src_id link_type switch_count src_id =
     match link_type with
     | LT.SwitchToSwitch | LT.SwitchToTerminal -> src_id
     | LT.TerminalToSwitch ->
       let result = switch_count + src_id in
-        result
+      result
   in
-  (* match link_type with *)
-  (* | LT.SwitchToSwitch | LT.SwitchToTerminal -> *)
-    let switch_count = Array.length dst_mat in
-    let src_ids = Array.init switch_count ~f:(get_src_id link_type switch_count) in
-    let f = uplink_procs link_mat src_ids in
-    let uprocs = Array.mapi dst_mat ~f in
-    let dls = downlinks link_type in
-    let dprocs = Array.map dls ~f:downlink_procs in
-    Array.concat [ uprocs; dprocs ]
-  (* | LT.TerminalToSwitch -> [||] *)
+  let switch_count = Array.length dst_mat in
+  let src_ids = Array.init switch_count ~f:(get_src_id link_type switch_count) in
+  let f = uplink_procs link_mat src_ids in
+  let uprocs = Array.mapi dst_mat ~f in
+  let dls = downlinks link_type in
+  let dprocs = Array.map dls ~f:downlink_procs in
+  Array.concat [ uprocs; dprocs ]
 ;;
 
 let _find_neighbors n conn xpu_id =
