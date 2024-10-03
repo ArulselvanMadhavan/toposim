@@ -4,6 +4,7 @@ module Signal = Sim.Signal
 module Process = Sim.Process
 module Async = Sim.Async
 open Sim
+open Utils
 
 let pf = Stdio.printf
 
@@ -94,7 +95,6 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   (* let send_procs = *)
   (*   Array.map link_mat ~f:(fun uls -> *)
   (*     let payload = payload / n in *)
-  (*     let send_time = payload / 1 in *)
   (*     (\* Create process *\) *)
   (*     (\* Local counter to update - maintained outside the process *\) *)
   (*     (\* Mark complete when counter is exhausted *\) *)
@@ -125,8 +125,9 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     Array.findi_exn all_link_types ~f:(fun _i -> Link_type.equal TerminalToSwitch)
   in
   let payload = payload / n in
+  let send_time = payload / 1 in
   (* let term_dst_mat = all_dst_mats.(term_idx) in *)
-  let term_link_mat = all_link_mats.(term_idx) in
+  let t_to_sw_lmat = all_link_mats.(term_idx) in
   (* let start_send_proc link_type _src_id uls = *)
   (*   let payload = payload / n in *)
   (*   let send_time = payload / 1 in *)
@@ -142,26 +143,52 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   (*   Process.create ul_ids send_n_times *)
   (* in *)
   (* Array.mapi term_link_mat ~f:start_send_proc *)
-  let fill_buffer _src_id uls =
+  let manage_term_links _src_id uls =
     let ul_ids = Array.map uls ~f:Signal.id |> Array.to_list in
-    let fill_buffer_when_ready () =
+    let fill_buffer_proc () =
       let handle_fill ul =
-        let buffer_size = !!ul.buffer in
-        if Int.(buffer_size = 0)
-        then (
-          match !!ul.status with
-          | Ready ->
-            let lv = { !!ul with buffer = payload; update_time = Async.current_time ()} in
-            let delay = buffer_fill_delay payload in
-            (ul <--- lv) ~delay
-          | _ -> ())
-        else ()
+        match !!ul.status with
+        | Ready when Int.(!!ul.buffer = 0) ->
+          let lv = { !!ul with buffer = payload; update_time = Async.current_time () } in
+          let delay = buffer_fill_delay payload in
+          (ul <--- lv) ~delay
+        | Ready when Int.(!!ul.buffer > 0) -> update_status ul (Sending send_time)
+        | Received when Int.(!!ul.buffer > 0) ->
+          let lv = { !!ul with buffer = 0; update_time = Async.current_time ()} in
+          (ul <--- lv) ~delay:0
+        | _ -> ()
       in
       Array.iter uls ~f:handle_fill
     in
-    Process.create ul_ids fill_buffer_when_ready
+    Process.create ul_ids fill_buffer_proc
   in
-  Array.mapi term_link_mat ~f:fill_buffer
+  let t_procs = Array.mapi t_to_sw_lmat ~f:manage_term_links in
+  let sw_to_t_idx, _ =
+    Array.findi_exn all_link_types ~f:(fun _i -> Link_type.equal SwitchToTerminal)
+  in
+  let sw_to_sw_idx, _ =
+    Array.findi_exn all_link_types ~f:(fun _i -> Link_type.equal SwitchToSwitch)
+  in
+  let switch_procs t_to_sw_lmat _sw_to_t_lmat _sw_to_sw_lmat =
+    let all_dls = flatten_mat t_to_sw_lmat in
+    let dl_ids = Array.map all_dls ~f:Signal.id |> Array.to_list in
+    let term_dls_proc () =
+      let handle_term_dl dl =
+        match !!dl.status with
+        | Sending delay ->
+          let lv = { !!dl with status = Received; update_time = Async.current_time () } in
+          (dl <--- lv) ~delay
+        | _ -> ()
+      in
+      Array.iter all_dls ~f:handle_term_dl
+    in
+    let dls_proc = Process.create dl_ids term_dls_proc in
+    [| dls_proc |]
+  in
+  let sw_to_t_lmat = all_link_mats.(sw_to_t_idx) in
+  let sw_to_sw_lmat = all_link_mats.(sw_to_sw_idx) in
+  let t_to_s_procs = switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat in
+  Array.append t_procs t_to_s_procs
 ;;
 
 let reduce_scatter conn payload all_link_types all_dst_mats all_link_mats =
