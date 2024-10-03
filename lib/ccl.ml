@@ -39,7 +39,7 @@ let recv_proc dls () =
 
 let make_recv_procs n dst_mat link_mat =
   let trigger_recv xpu_id =
-    let dls = Link.downlinks_for_xpu dst_mat link_mat xpu_id in
+    let dls = Link.downlinks_for_switch dst_mat link_mat xpu_id in
     let dl_ids = Array.map dls ~f:Signal.id in
     Process.create (Array.to_list dl_ids) (recv_proc dls)
   in

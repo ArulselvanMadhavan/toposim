@@ -7,9 +7,21 @@ module Debug = Sim.Debug
 module Link = Toposim.Link
 module Ccl = Toposim.Ccl
 module Conn_type = Toposim.Conn_type
+module LT = Toposim.Link_type
 open Link
 
-let _pf = Stdio.printf
+let pf = Stdio.printf
+let _shape_str mat = pf "%d,%d\n" (Array.length mat) (Array.length mat.(0))
+
+let flatten_mat mat =
+  let dimx = Array.length mat in
+  let dimy = Array.length mat.(0) in
+  Array.init (dimx * dimy) ~f:(fun i ->
+    let row_id = i / dimy in
+    let col_id = i - row_id * dimy in
+    (* pf "flatten:%d|%d\n" row_id col_id; *)
+    mat.(row_id).(col_id))
+;;
 
 let make_links dst_mat =
   Array.map dst_mat ~f:(fun dsts ->
@@ -17,51 +29,7 @@ let make_links dst_mat =
       Signal.create (module Link_signal.Link_value)))
 ;;
 
-(* (\* switch to terminal - uplink *\) *)
-(* (\* terminal to switch - downlink *\) *)
-(* let make_xpu link_mat dst_mat node_type xpu_id = *)
-(*   let open Sim in *)
-(*   let open Link_signal.Link_value in *)
-(*   (\* Uplink Process *\) *)
-(*   let uls = link_mat.(xpu_id) in *)
-(*   let ul_ids = Array.map uls ~f:Signal.id in *)
-(*   let dsts = dst_mat.(xpu_id) in *)
-(*   let handle_ul () = *)
-(*     (\* Establish uplinks *\) *)
-(*     let establish_conn i ul = *)
-(*       match !!ul.status with *)
-(*       | Undefined -> *)
-(*         let delay = get_delay Undefined in *)
-(*         let lv = make_t xpu_id dsts.(i) Connecting (Async.current_time ()) in *)
-(*         (ul <--- lv) ~delay *)
-(*       | _ -> () *)
-(*     in *)
-(*     Array.iteri uls ~f:establish_conn *)
-(*   in *)
-(*   let ul_proc = Process.create (Array.to_list ul_ids) handle_ul in *)
-(*   (\* Downlink process *\) *)
-(*   let dls = *)
-(*     match node_type with *)
-(*     | `Switch -> Link.downlinks_for_xpu xpu_id dst_mat link_mat *)
-(*     | `Terminal -> Link.downlinks_from_terminals xpu_id dst_mat link_mat *)
-(*   in *)
-(*   let dl_ids = Array.map dls ~f:Signal.id in *)
-(*   let handle_dls () = *)
-(*     let handle_dl dl = *)
-(*       match !!dl.status with *)
-(*       | Connecting -> *)
-(*         let delay = get_delay !!dl.status in *)
-(*         let lv = { !!dl with status = Ready; update_time = Async.current_time () } in *)
-(*         (dl <--- lv) ~delay *)
-(*       | _ -> () *)
-(*     in *)
-(*     Array.iter dls ~f:handle_dl *)
-(*   in *)
-(*   let dl_proc = Process.create (Array.to_list dl_ids) handle_dls in *)
-(*   [ ul_proc; dl_proc ] *)
-(* ;; *)
-
-let uplink_procs link_mat src_id dsts =
+let uplink_procs link_mat src_ids src_id dsts =
   let open Sim in
   let open Link_signal.Link_value in
   let uls = link_mat.(src_id) in
@@ -71,7 +39,8 @@ let uplink_procs link_mat src_id dsts =
       match !!ul.status with
       | Undefined ->
         let delay = get_delay Undefined in
-        let lv = make_t src_id dsts.(i) Connecting (Async.current_time ()) in
+        (* pf "i:%d|src:%d|dst:%d\n" src_id src_ids.(src_id) dsts.(i); *)
+        let lv = make_t src_ids.(src_id) dsts.(i) Connecting (Async.current_time ()) in
         (ul <--- lv) ~delay
       | _ -> ()
     in
@@ -84,6 +53,7 @@ let uplink_procs link_mat src_id dsts =
 let downlink_procs dls =
   let open Sim in
   let open Link_signal.Link_value in
+  (* pf "DL len:%d\n" (Array.length dls); *)
   let dl_ids = Array.map dls ~f:Signal.id in
   let handle_dls () =
     let handle_dl dl =
@@ -100,16 +70,34 @@ let downlink_procs dls =
 ;;
 
 let make_procs link_type dst_mat link_mat =
-  match link_type with
-  | `Switch_to_Switch ->
-    let f = uplink_procs link_mat in
+  let downlinks link_type =
+    match link_type with
+    | LT.SwitchToSwitch ->
+      Array.init (Array.length dst_mat) ~f:(Link.downlinks_for_switch dst_mat link_mat)
+    | LT.SwitchToTerminal ->
+      Array.init
+        (Array.length dst_mat)
+        ~f:(Link.downlinks_from_terminals dst_mat link_mat)
+    | LT.TerminalToSwitch -> [||]
+
+  in
+  let get_src_id link_type switch_count src_id =
+    match link_type with
+    | LT.SwitchToSwitch | LT.SwitchToTerminal -> src_id
+    | LT.TerminalToSwitch ->
+      let result = switch_count + src_id in
+        result
+  in
+  (* match link_type with *)
+  (* | LT.SwitchToSwitch | LT.SwitchToTerminal -> *)
+    let switch_count = Array.length dst_mat in
+    let src_ids = Array.init switch_count ~f:(get_src_id link_type switch_count) in
+    let f = uplink_procs link_mat src_ids in
     let uprocs = Array.mapi dst_mat ~f in
-    let dls =
-      Array.init (Array.length dst_mat) ~f:(Link.downlinks_for_xpu dst_mat link_mat)
-    in
+    let dls = downlinks link_type in
     let dprocs = Array.map dls ~f:downlink_procs in
     Array.concat [ uprocs; dprocs ]
-  | _ -> [||]
+  (* | LT.TerminalToSwitch -> [||] *)
 ;;
 
 let _find_neighbors n conn xpu_id =
@@ -121,7 +109,7 @@ let _find_neighbors n conn xpu_id =
   | _ -> [||]
 ;;
 
-let transpose mat =
+let _transpose mat =
   let dimy = Array.length mat in
   assert (dimy > 0);
   let dimx = Array.length mat.(0) in
@@ -130,7 +118,9 @@ let transpose mat =
   tmat
 ;;
 
-let shape_str mat = pf "%d,%d\n" (Array.length mat) (Array.length mat.(0))
+let terminal_id switch_count term_count sw_id term_idx =
+  switch_count + (sw_id * term_count) + term_idx
+;;
 
 let routing_table = function
   | Conn_type.HyperX (_, _, _) as _hx -> [||]
@@ -142,12 +132,14 @@ let routing_table = function
     (* take one signal for every link visible from the switch  *)
     let result =
       Array.init p ~f:(fun sw_id ->
-        let terminals = Array.init t ~f:(fun t_id -> p + (sw_id * t) + t_id) in
+        let terminals = Array.init t ~f:(terminal_id sw_id p t) in
         let switches = [| (n + sw_id - 1) % n; (sw_id + 1) % n |] in
         assert (Array.length switches + Array.length terminals = d);
         switches, terminals)
     in
-    result
+    let t_to_sw = Array.init (p * t) ~f:(fun t_id -> [| t_id / t |]) in
+    let sw_to_sw, sw_to_t = Array.unzip result in
+    [| sw_to_sw; sw_to_t; t_to_sw |]
   | _ -> [||]
 ;;
 
@@ -156,38 +148,39 @@ let routing_table = function
 (* let conn = Conn_type.make_hyperx ~t:1 ~m:[| 4 |] ~k:1 *)
 let conn = Conn_type.Ring 4
 
-let add_debug links node_type =
+let add_debug link_type links =
   let link_name =
-    match node_type with
-    | `Switch_to_Switch -> "sw_link"
-    | `Terminal -> "terminal_link"
+    match link_type with
+    | LT.SwitchToSwitch -> "sw_to_sw_link"
+    | LT.SwitchToTerminal -> "sw_to_t_link"
+    | LT.TerminalToSwitch -> "t_to_sw_link"
   in
-  Array.mapi links ~f:(fun i ->
-    Array.map ~f:(Debug.print_signal (link_name ^ Int.to_string i)))
+  let mat =
+    Array.mapi links ~f:(fun i ->
+      Array.map ~f:(Debug.print_signal (link_name ^ Int.to_string i)))
+  in
+  flatten_mat mat
 ;;
 
 let () =
-  let dst_mat = routing_table conn in
-  let dst_sw_sw, dst_sw_t = Base.Array.unzip dst_mat in
-  shape_str dst_sw_sw;
-  shape_str dst_sw_t;
-  let dst_t_sw = transpose dst_sw_t in
-  shape_str dst_t_sw;
-  let all_dst_mats = [| dst_sw_sw; dst_sw_t; dst_t_sw |] in
+  let all_dst_mats = routing_table conn in
   let all_link_mats = Array.map ~f:make_links all_dst_mats in
-  let procs_sw_sw = make_procs `Switch_to_Switch dst_sw_sw all_link_mats.(0) in
-  let dbg_sw = add_debug all_link_mats.(0) `Switch_to_Switch in
-  let dbgs =
-    Array.fold (Array.concat [ dbg_sw ]) ~init:[] ~f:(Fn.flip List.cons)
-    |> Array.concat
-    |> Array.to_list
+  let all_link_types =
+    [| LT.SwitchToSwitch; LT.SwitchToTerminal; LT.TerminalToSwitch |]
   in
-  let switch_procs = Array.to_list procs_sw_sw in
-  (* Array.fold (Array.concat [ procs_sw_sw ]) ~init:[] ~f:(Fn.flip List.cons) *)
-  (* |> List.concat *)
-  let comms = Ccl.reduce_scatter conn (4 * 100) dst_sw_sw all_link_mats.(0) in
+  let procs =
+    Array.init (Array.length all_link_types) ~f:(fun i ->
+      make_procs all_link_types.(i) all_dst_mats.(i) all_link_mats.(i))
+  in
+  let dbgs =
+    Array.init (Array.length all_link_types) ~f:(fun i ->
+      add_debug all_link_types.(i) all_link_mats.(i))
+  in
+  let dbgs = Array.to_list dbgs |> Array.concat |> Array.to_list in
+  let procs = Array.to_list procs |> Array.concat |> Array.to_list in
+  (* let comms = Ccl.reduce_scatter conn (4 * 100) dst_sw_sw all_link_mats.(0) in *)
   (* Link.build_trace "reduce_scatter" link_mat; *)
-  let xpus = switch_procs @ dbgs @ comms in
+  let xpus = procs @ dbgs in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:1500
 ;;
