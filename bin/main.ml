@@ -23,6 +23,15 @@ let flatten_mat mat =
     mat.(row_id).(col_id))
 ;;
 
+let transpose mat =
+  let dimy = Array.length mat in
+  assert (dimy > 0);
+  let dimx = Array.length mat.(0) in
+  let tmat = Array.make_matrix ~dimx ~dimy mat.(0).(0) in
+  Array.iteri mat ~f:(fun i row -> Array.iteri row ~f:(fun j e -> tmat.(j).(i) <- e));
+  tmat
+;;
+
 let make_links dst_mat =
   Array.map dst_mat ~f:(fun dsts ->
     Array.init (Array.length dsts) ~f:(fun _ ->
@@ -60,6 +69,7 @@ let downlink_procs dls =
       match !!dl.status with
       | Connecting ->
         let delay = get_delay !!dl.status in
+        pf "Ready for linkid:%d|src:%d|dst:%d\n" !!dl.id !!dl.src !!dl.dst;
         let lv = { !!dl with status = Ready; update_time = Async.current_time () } in
         (dl <--- lv) ~delay
       | _ -> ()
@@ -69,22 +79,7 @@ let downlink_procs dls =
   Process.create (Array.to_list dl_ids) handle_dls
 ;;
 
-let make_procs link_type dst_mat link_mat =
-  let downlinks link_type =
-    match link_type with
-    | LT.SwitchToSwitch ->
-      Array.init (Array.length dst_mat) ~f:(Link.downlinks_for_switch dst_mat link_mat)
-    | LT.SwitchToTerminal ->
-      Array.init
-        (Array.length dst_mat)
-        ~f:(Link.downlinks_from_terminals dst_mat link_mat)
-    | LT.TerminalToSwitch ->
-      (* Every terminal has a downlink from exactly one switch
-         This may change in the future but for now
-      *)
-      _shape_str link_mat;
-      [||]
-  in
+let make_uplink_procs link_type dst_mat link_mat =
   let get_src_id link_type switch_count src_id =
     match link_type with
     | LT.SwitchToSwitch | LT.SwitchToTerminal -> src_id
@@ -96,9 +91,7 @@ let make_procs link_type dst_mat link_mat =
   let src_ids = Array.init switch_count ~f:(get_src_id link_type switch_count) in
   let f = uplink_procs link_mat src_ids in
   let uprocs = Array.mapi dst_mat ~f in
-  let dls = downlinks link_type in
-  let dprocs = Array.map dls ~f:downlink_procs in
-  Array.concat [ uprocs; dprocs ]
+  uprocs
 ;;
 
 let _find_neighbors n conn xpu_id =
@@ -108,15 +101,6 @@ let _find_neighbors n conn xpu_id =
     Array.filter xs ~f:(fun x -> Int.(x <> -1))
   | Conn_type.Ring _xs -> [| (xpu_id + 1) % n |]
   | _ -> [||]
-;;
-
-let _transpose mat =
-  let dimy = Array.length mat in
-  assert (dimy > 0);
-  let dimx = Array.length mat.(0) in
-  let tmat = Array.make_matrix ~dimx ~dimy 0 in
-  Array.iteri mat ~f:(fun i row -> Array.iteri row ~f:(fun j e -> tmat.(j).(i) <- e));
-  tmat
 ;;
 
 let terminal_id switch_count term_count sw_id term_idx =
@@ -169,16 +153,24 @@ let () =
   let all_link_types =
     [| LT.SwitchToSwitch; LT.SwitchToTerminal; LT.TerminalToSwitch |]
   in
-  let procs =
+  let uprocs =
     Array.init (Array.length all_link_types) ~f:(fun i ->
-      make_procs all_link_types.(i) all_dst_mats.(i) all_link_mats.(i))
+      make_uplink_procs all_link_types.(i) all_dst_mats.(i) all_link_mats.(i))
+  in
+  let dprocs =
+    Array.init (Array.length all_link_types) ~f:(fun i ->
+        let link_mat = transpose all_link_mats.(i) in
+        Array.map link_mat ~f:downlink_procs
+      )
   in
   let dbgs =
     Array.init (Array.length all_link_types) ~f:(fun i ->
       add_debug all_link_types.(i) all_link_mats.(i))
   in
   let dbgs = Array.to_list dbgs |> Array.concat |> Array.to_list in
-  let procs = Array.to_list procs |> Array.concat |> Array.to_list in
+  let procs =
+    Array.to_list (Array.append uprocs dprocs) |> Array.concat |> Array.to_list
+  in
   (* let comms = Ccl.reduce_scatter conn (4 * 100) dst_sw_sw all_link_mats.(0) in *)
   (* Link.build_trace "reduce_scatter" link_mat; *)
   let xpus = procs @ dbgs in

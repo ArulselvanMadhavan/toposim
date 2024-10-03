@@ -15,23 +15,31 @@ module Link_signal = struct
     [@@deriving equal, sexp_of, compare]
 
     type t =
-      { id:int; src : int
+      { id : int
+      ; src : int
       ; dst : int
       ; status : link_status
       ; update_time : int
       }
     [@@deriving sexp_of, equal, compare, fields ~getters]
 
-    let undefined = { id = undefined_link_id; src = -1; dst = -1; status = Undefined; update_time = -1 }
+    let undefined =
+      { id = undefined_link_id; src = -1; dst = -1; status = Undefined; update_time = -1 }
+    ;;
 
     let ( = ) l1 l2 =
       (* If we miss a field here then updates to that field will not be visible *)
-      let { id = id1; src = l1_src; dst = l1_dst; status = l1_st; update_time = l1_ut } = l1 in
-      let { id = id2; src = l2_src; dst = l2_dst; status = l2_st; update_time = l2_ut } = l2 in
+      let { id = id1; src = l1_src; dst = l1_dst; status = l1_st; update_time = l1_ut } =
+        l1
+      in
+      let { id = id2; src = l2_src; dst = l2_dst; status = l2_st; update_time = l2_ut } =
+        l2
+      in
       Int.(l1_src = l2_src)
       && Int.(l1_dst = l2_dst)
       && equal_link_status l1_st l2_st
-      && Int.(l1_ut = l2_ut) && Int.(id1 = id2)
+      && Int.(l1_ut = l2_ut)
+      && Int.(id1 = id2)
     ;;
 
     let resolve_value =
