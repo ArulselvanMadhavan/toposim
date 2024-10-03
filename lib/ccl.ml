@@ -62,7 +62,7 @@ let all2all_send_receive n payload dst_mat link_mat =
   make_procs_list [ send_procs; recv_procs ]
 ;;
 
-let ring_send_receive _n _payload dst_mat link_mat =
+let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   let open! Sim in
   let open! Link.Link_signal.Link_value in
   (* 1. get terminal uplinks which is equal to switch downlinks.*)
@@ -82,15 +82,15 @@ let ring_send_receive _n _payload dst_mat link_mat =
   *)
   (* dst_sw -> switch_count x out_degree_switches + switch_count x terminal *)
   (* ccl process has access to signals. Responsible for changing some states on the signals *)
-  let run_stage dst_mat link_mat =
-    let _dst_sw_sw = dst_mat.(0) in
-    let _dst_sw_t = dst_mat.(1) in
-    let _dst_t_sw = dst_mat.(2) in
-    let _link_sw_sw = link_mat.(0) in
-    let _link_sw_t = link_mat.(1) in
-    let _link_t_sw = link_mat.(2) in
-    pf "T count:%d\n" (Array.length _dst_sw_t)
-  in
+  (* let run_stage () = *)
+  (*   (\* let _dst_sw_sw = dst_mat.(0) in *\) *)
+  (*   (\* let _dst_sw_t = dst_mat.(1) in *\) *)
+  (*   (\* let _dst_t_sw = dst_mat.(2) in *\) *)
+  (*   (\* let _link_sw_sw = link_mat.(0) in *\) *)
+  (*   (\* let _link_sw_t = link_mat.(1) in *\) *)
+  (*   (\* let _link_t_sw = link_mat.(2) in *\) *)
+  (*   (\* pf "T count:%d\n" (Array.length _dst_sw_t) *\) *)
+  (* in *)
   (* let send_procs = *)
   (*   Array.map link_mat ~f:(fun uls -> *)
   (*     let payload = payload / n in *)
@@ -118,13 +118,55 @@ let ring_send_receive _n _payload dst_mat link_mat =
   (* in *)
   (* let recv_procs = make_recv_procs n dst_mat link_mat in *)
   (* make_procs_list [ send_procs; recv_procs ] *)
-  run_stage dst_mat link_mat;
-  []
+  (* run_stage dst_mat link_mat; *)
+
+  (* 1. Terminal to switch send - use uplinks *)
+  let term_idx, _ =
+    Array.findi_exn all_link_types ~f:(fun _i -> Link_type.equal TerminalToSwitch)
+  in
+  let payload = payload / n in
+  (* let term_dst_mat = all_dst_mats.(term_idx) in *)
+  let term_link_mat = all_link_mats.(term_idx) in
+  (* let start_send_proc link_type _src_id uls = *)
+  (*   let payload = payload / n in *)
+  (*   let send_time = payload / 1 in *)
+  (*   let ul_ids = Array.map uls ~f:Signal.id |> Array.to_list in *)
+  (*   let send_n_times () = *)
+  (*     let send ul = *)
+  (*       match !!ul.status with *)
+  (*       | Ready -> update_status ul (Sending send_time) *)
+  (*       | _ -> () *)
+  (*     in *)
+  (*     Array.iter uls ~f:send *)
+  (*   in *)
+  (*   Process.create ul_ids send_n_times *)
+  (* in *)
+  (* Array.mapi term_link_mat ~f:start_send_proc *)
+  let fill_buffer _src_id uls =
+    let ul_ids = Array.map uls ~f:Signal.id |> Array.to_list in
+    let fill_buffer_when_ready () =
+      let handle_fill ul =
+        let buffer_size = !!ul.buffer in
+        if Int.(buffer_size = 0)
+        then (
+          match !!ul.status with
+          | Ready ->
+            let lv = { !!ul with buffer = payload; update_time = Async.current_time ()} in
+            let delay = buffer_fill_delay payload in
+            (ul <--- lv) ~delay
+          | _ -> ())
+        else ()
+      in
+      Array.iter uls ~f:handle_fill
+    in
+    Process.create ul_ids fill_buffer_when_ready
+  in
+  Array.mapi term_link_mat ~f:fill_buffer
 ;;
 
-let reduce_scatter conn payload dst_mat link_mat =
+let reduce_scatter conn payload all_link_types all_dst_mats all_link_mats =
   match conn with
-  (* | Conn_type.All2All _ -> all2all_send_receive n payload dst_mat link_mat *)
-  | Conn_type.Ring n -> ring_send_receive n payload dst_mat link_mat
-  | _ -> []
+  | Conn_type.Ring n ->
+    ring_send_receive n payload all_link_types all_dst_mats all_link_mats
+  | _ -> [||]
 ;;

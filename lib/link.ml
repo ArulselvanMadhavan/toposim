@@ -18,21 +18,42 @@ module Link_signal = struct
       { id : int
       ; src : int
       ; dst : int
+      ; buffer : int
       ; status : link_status
       ; update_time : int
       }
     [@@deriving sexp_of, equal, compare, fields ~getters]
 
     let undefined =
-      { id = undefined_link_id; src = -1; dst = -1; status = Undefined; update_time = -1 }
+      { id = undefined_link_id
+      ; src = -1
+      ; dst = -1
+      ; status = Undefined
+      ; update_time = -1
+      ; buffer = 0
+      }
     ;;
 
     let ( = ) l1 l2 =
       (* If we miss a field here then updates to that field will not be visible *)
-      let { id = id1; src = l1_src; dst = l1_dst; status = l1_st; update_time = l1_ut } =
+      let { id = id1
+          ; src = l1_src
+          ; dst = l1_dst
+          ; status = l1_st
+          ; update_time = l1_ut
+          ; buffer = b1
+          }
+        =
         l1
       in
-      let { id = id2; src = l2_src; dst = l2_dst; status = l2_st; update_time = l2_ut } =
+      let { id = id2
+          ; src = l2_src
+          ; dst = l2_dst
+          ; status = l2_st
+          ; update_time = l2_ut
+          ; buffer = b2
+          }
+        =
         l2
       in
       Int.(l1_src = l2_src)
@@ -40,6 +61,7 @@ module Link_signal = struct
       && equal_link_status l1_st l2_st
       && Int.(l1_ut = l2_ut)
       && Int.(id1 = id2)
+      && Int.(b1 = b2)
     ;;
 
     let resolve_value =
@@ -64,9 +86,11 @@ module Link_signal = struct
       | _ -> 0
     ;;
 
+    let buffer_fill_delay payload = payload / 10
+
     let make_t src dst status time =
       Int.incr nextid;
-      { id = !nextid; src; dst; status; update_time = time }
+      { id = !nextid; src; dst; status; update_time = time; buffer = 0 }
     ;;
   end
 end

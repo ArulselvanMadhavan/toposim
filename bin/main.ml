@@ -69,7 +69,7 @@ let downlink_procs dls =
       match !!dl.status with
       | Connecting ->
         let delay = get_delay !!dl.status in
-        pf "Ready for linkid:%d|src:%d|dst:%d\n" !!dl.id !!dl.src !!dl.dst;
+        (* pf "Ready for linkid:%d|src:%d|dst:%d\n" !!dl.id !!dl.src !!dl.dst; *)
         let lv = { !!dl with status = Ready; update_time = Async.current_time () } in
         (dl <--- lv) ~delay
       | _ -> ()
@@ -153,27 +153,27 @@ let () =
   let all_link_types =
     [| LT.SwitchToSwitch; LT.SwitchToTerminal; LT.TerminalToSwitch |]
   in
-  let uprocs =
+  let procs =
     Array.init (Array.length all_link_types) ~f:(fun i ->
-      make_uplink_procs all_link_types.(i) all_dst_mats.(i) all_link_mats.(i))
-  in
-  let dprocs =
-    Array.init (Array.length all_link_types) ~f:(fun i ->
-        let link_mat = transpose all_link_mats.(i) in
-        Array.map link_mat ~f:downlink_procs
-      )
+      let uprocs =
+        make_uplink_procs all_link_types.(i) all_dst_mats.(i) all_link_mats.(i)
+      in
+      let link_mat = transpose all_link_mats.(i) in
+      let dprocs = Array.map link_mat ~f:downlink_procs in
+      Array.append uprocs dprocs)
   in
   let dbgs =
     Array.init (Array.length all_link_types) ~f:(fun i ->
       add_debug all_link_types.(i) all_link_mats.(i))
   in
   let dbgs = Array.to_list dbgs |> Array.concat |> Array.to_list in
-  let procs =
-    Array.to_list (Array.append uprocs dprocs) |> Array.concat |> Array.to_list
+  let procs = Array.to_list procs |> Array.concat |> Array.to_list in
+  let comms =
+    Ccl.reduce_scatter conn (4 * 100) all_link_types all_dst_mats all_link_mats
+    |> Array.to_list
   in
-  (* let comms = Ccl.reduce_scatter conn (4 * 100) dst_sw_sw all_link_mats.(0) in *)
   (* Link.build_trace "reduce_scatter" link_mat; *)
-  let xpus = procs @ dbgs in
+  let xpus = procs @ dbgs @ comms in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:1500
 ;;
