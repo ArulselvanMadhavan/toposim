@@ -32,42 +32,33 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   let term_procs uls dls =
     let uls = flatten_mat uls in
     let dls = flatten_mat dls in
-    let ul_ids = Link_signal.signal_ids uls in
     let dl_ids = Link_signal.signal_ids dls in
-    let ul_count = ref 1 in
-    let ul_proc () =
-      let handle_fill ul =
-        match !!ul.status with
-        | Ready when !ul_count > 0 -> update_status ul (NonEmptyBuffer payload)
-        | NonEmptyBuffer payload -> update_status ul (Sending payload)
-        | Received ->
-          Int.decr ul_count;
-          update_status ul ClearBuffer
-        | ClearBuffer when !ul_count > 0 -> update_status ul Ready
-        | ClearBuffer -> update_status ul Complete
-        | _ -> ()
-      in
-      Array.iter uls ~f:handle_fill
+    (* When there is state involved, create a process for each uplink *)
+    let ul_proc ul_count ul () =
+      match !!ul.status with
+      | Ready when !ul_count > 0 -> update_status ul (NonEmptyBuffer payload)
+      | NonEmptyBuffer payload -> update_status ul (Sending payload)
+      | Received ->
+        Int.decr ul_count;
+        update_status ul ClearBuffer
+      | ClearBuffer -> update_status ul Ready
+       | _ -> ()
     in
     let dl_proc () =
       let handle_dl dl =
-        (* let dl_count = ref 1 in *)
         match !!dl.status with
-        (* | Sending _ when !dl_count > 0 -> *)
-        (*   Int.decr dl_count; *)
-        (*   (\* pf "src:%d|dst:%d|dl_count:%d\n" !!dl.src !!dl.dst !dl_count; *\) *)
-        (*   update_status dl Received *)
-        (* | Sending _p when !dl_count <= 0 -> *)
-        (*   pf "Unexpected payload received at %d from %d\n" !!dl.dst !!dl.src *)
-        | Sending _ ->
-          update_status dl Received
+        | Sending _ -> update_status dl Received
         | _ -> ()
       in
       Array.iter dls ~f:handle_dl
     in
-    let ul_proc = Process.create ul_ids ul_proc in
-    let dl_proc = Process.create dl_ids dl_proc in
-    [| ul_proc; dl_proc |]
+    let ul_procs =
+      Array.map uls ~f:(fun ul ->
+        let ul_count = ref (n - 1) in
+        Process.create [ Signal.id ul ] (ul_proc ul_count ul))
+    in
+    let dl_procs = [| Process.create dl_ids dl_proc |] in
+    Array.append ul_procs dl_procs
   in
   let switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat =
     (* Handle dls *)
@@ -102,18 +93,14 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     let sw_uls = flatten_mat sw_to_sw_lmat in
     let uls = Array.append t_uls sw_uls in
     let uls_ids = Array.map uls ~f:Signal.id |> Array.to_list in
-    let sw_ul_count = ref 1 in
     let uls_proc () =
       let handle_ul ul =
         match !!ul.status with
         | NonEmptyBuffer payload ->
           let send_time = payload / 1 in
           update_status ul (Sending send_time)
-        | Received ->
-          Int.decr sw_ul_count;
-          update_status ul ClearBuffer
-        | ClearBuffer when !sw_ul_count > 0 -> update_status ul Ready
-        | ClearBuffer -> update_status ul Complete
+        | Received -> update_status ul ClearBuffer
+        | ClearBuffer -> update_status ul Ready
         | _ -> ()
       in
       Array.iter uls ~f:handle_ul

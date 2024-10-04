@@ -16,7 +16,6 @@ module Link_signal = struct
       | Sending of int
       | Received
       | ClearBuffer
-      | Complete
     [@@deriving equal, sexp_of, compare]
 
     type t =
@@ -68,7 +67,7 @@ module Link_signal = struct
     let link_bw = 1
 
     let get_delay = function
-      | Undefined | Connecting | Ready | Received | Complete -> 1
+      | Undefined | Connecting | Ready | Received -> 1
       | NonEmptyBuffer payload -> buffer_fill_delay payload
       | ClearBuffer -> buffer_clear_delay
       | Sending payload -> payload / link_bw
