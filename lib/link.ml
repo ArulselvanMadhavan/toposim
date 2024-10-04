@@ -1,8 +1,11 @@
 open Base
+module Sim = Event_driven_sim.Simulator
+module Signal = Sim.Signal
 
 module Link_signal = struct
   let undefined_link_id = -1
   let nextid = ref undefined_link_id
+  let signal_ids links = Array.map links ~f:Signal.id |> Array.to_list
 
   module Link_value = struct
     type link_status =
@@ -75,6 +78,7 @@ module Link_signal = struct
       { id = !nextid; src; dst; status; update_time = time }
     ;;
   end
+
 end
 
 let pf = Stdio.printf

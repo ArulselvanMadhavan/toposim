@@ -3,6 +3,7 @@ module Sim = Event_driven_sim.Simulator
 module Signal = Sim.Signal
 module Process = Sim.Process
 module Async = Sim.Async
+module Link_signal = Link.Link_signal
 open Sim
 open Utils
 
@@ -55,8 +56,8 @@ let all2all_send_receive n payload dst_mat link_mat =
     let payload = payload / n in
     let send_time = payload / 1 in
     let uls = link_mat.(xpu_id) in
-    let ul_ids = Array.map uls ~f:Signal.id in
-    Process.create (Array.to_list ul_ids) (send_proc uls send_time)
+    let ul_ids = Link.Link_signal.signal_ids uls in
+    Process.create ul_ids (send_proc uls send_time)
   in
   let send_procs = Array.init n ~f:trigger_send in
   let recv_procs = make_recv_procs n dst_mat link_mat in
@@ -77,10 +78,13 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   let sw_to_t_lmat = all_link_mats.(sw_to_t_idx) in
   let sw_to_sw_lmat = all_link_mats.(sw_to_sw_idx) in
 
-  let term_procs _src_id uls =
-    let ul_ids = Array.map uls ~f:Signal.id |> Array.to_list in
+  let term_procs uls dls =
+    let uls = flatten_mat uls in
+    let dls = flatten_mat dls in
+    let ul_ids = Link_signal.signal_ids uls in
+    let dl_ids = Link_signal.signal_ids dls in
     let has_data = ref 1 in
-    let fill_buffer_proc () =
+    let ul_proc () =
       let handle_fill ul =
         match !!ul.status with
         | Ready when !has_data > 0 -> update_status ul (NonEmptyBuffer payload)
@@ -96,14 +100,29 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
       in
       Array.iter uls ~f:handle_fill
     in
-    Process.create ul_ids fill_buffer_proc
+    let has_data = ref 1 in
+    let dl_proc () =
+      let handle_dl dl =
+        match !!dl.status with
+        | Received ->
+          Int.decr has_data;
+          update_status ul ClearBuffer
+        | ClearBuffer when !has_data > 0 -> update_status ul Ready
+        | ClearBuffer -> update_status ul Complete
+        | _ -> ()
+      in
+      Array.iter dls ~f:handle_dl
+    in
+    let ul_proc = Process.create ul_ids ul_proc in
+    let dl_proc = Process.create dl_ids dl_proc in
+    [|ul_proc; dl_proc|]
   in
   let switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat =
     (* Handle dls *)
     let term_dls = flatten_mat t_to_sw_lmat in
     let sw_dls = flatten_mat sw_to_sw_lmat in
     let dls = Array.append term_dls sw_dls in
-    let dls_ids = Array.map dls ~f:Signal.id |> Array.to_list in
+    let dls_ids = Link_signal.signal_ids dls in
     let dls_proc () =
       let handle_dl dl =
         match !!dl.status with
@@ -148,7 +167,7 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     let uls_proc = Process.create uls_ids uls_proc in
     [| dls_proc; uls_proc |]
   in
-  let t_procs = Array.mapi t_to_sw_lmat ~f:term_procs in
+  let t_procs = term_procs t_to_sw_lmat sw_to_t_lmat in
   let t_to_s_procs = switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat in
   Array.append t_procs t_to_s_procs
 ;;
