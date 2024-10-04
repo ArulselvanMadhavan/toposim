@@ -99,29 +99,54 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     Process.create ul_ids fill_buffer_proc
   in
   let switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat =
-    let all_dls = flatten_mat t_to_sw_lmat in
-    let dl_ids = Array.map all_dls ~f:Signal.id |> Array.to_list in
-    let term_dls_proc () =
-      let handle_term_dl dl =
+    (* Handle dls *)
+    let term_dls = flatten_mat t_to_sw_lmat in
+    let sw_dls = flatten_mat sw_to_sw_lmat in
+    let dls = Array.append term_dls sw_dls in
+    let dls_ids = Array.map dls ~f:Signal.id |> Array.to_list in
+    let dls_proc () =
+      let handle_dl dl =
         match !!dl.status with
         | Sending payload ->
           let sw_id = !!dl.dst in
-          let is_terminal = !!dl.src >= n in
+          let src = !!dl.src in
+          let is_terminal = src >= n in
+          let next_link = if is_terminal then sw_to_sw_lmat.(sw_id) else sw_to_t_lmat.(sw_id) in
           (* there will be multiple candidates to receive. topology selects the next link *)
           (* ASSUME: Ring always send to the right.
              ASSUME: There is only one terminal *)
-          let next_link =
-            (if is_terminal then sw_to_sw_lmat.(sw_id) else sw_to_t_lmat.(sw_id))
-            |> Array.last
-          in
+          (* let next_link = sw_to_sw_lmat.(sw_id) |> Array.last in *)
+          let next_link = Array.last next_link in
           update_status dl Received;
           update_status next_link (NonEmptyBuffer payload)
         | _ -> ()
       in
-      Array.iter all_dls ~f:handle_term_dl
+      Array.iter dls ~f:handle_dl
     in
-    let tdls_proc = Process.create dl_ids term_dls_proc in
-    [| tdls_proc |]
+    let dls_proc = Process.create dls_ids dls_proc in
+    (* Handle uls *)
+    let t_uls = flatten_mat sw_to_t_lmat in
+    let sw_uls = flatten_mat sw_to_sw_lmat in
+    let uls = Array.append t_uls sw_uls in
+    let uls_ids = Array.map uls ~f:Signal.id |> Array.to_list in
+    let has_data = ref 1 in
+    let uls_proc () =
+      let handle_ul ul =
+        match !!ul.status with
+        | NonEmptyBuffer payload ->
+          let send_time = payload / 1 in
+          update_status ul (Sending send_time)
+        | Received ->
+          Int.decr has_data;
+          update_status ul ClearBuffer
+        | ClearBuffer when !has_data > 0 -> update_status ul Ready
+        | ClearBuffer -> update_status ul Complete
+        | _ -> ()
+      in
+      Array.iter uls ~f:handle_ul
+    in
+    let uls_proc = Process.create uls_ids uls_proc in
+    [| dls_proc; uls_proc |]
   in
   let t_procs = Array.mapi t_to_sw_lmat ~f:term_procs in
   let t_to_s_procs = switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat in
