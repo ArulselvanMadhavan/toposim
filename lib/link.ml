@@ -9,8 +9,10 @@ module Link_signal = struct
       | Undefined
       | Connecting
       | Ready
+      | NonEmptyBuffer of int
       | Sending of int
       | Received
+      | ClearBuffer
       | Complete
     [@@deriving equal, sexp_of, compare]
 
@@ -18,42 +20,21 @@ module Link_signal = struct
       { id : int
       ; src : int
       ; dst : int
-      ; buffer : int
       ; status : link_status
       ; update_time : int
       }
     [@@deriving sexp_of, equal, compare, fields ~getters]
 
     let undefined =
-      { id = undefined_link_id
-      ; src = -1
-      ; dst = -1
-      ; status = Undefined
-      ; update_time = -1
-      ; buffer = 0
-      }
+      { id = undefined_link_id; src = -1; dst = -1; status = Undefined; update_time = -1 }
     ;;
 
     let ( = ) l1 l2 =
       (* If we miss a field here then updates to that field will not be visible *)
-      let { id = id1
-          ; src = l1_src
-          ; dst = l1_dst
-          ; status = l1_st
-          ; update_time = l1_ut
-          ; buffer = b1
-          }
-        =
+      let { id = id1; src = l1_src; dst = l1_dst; status = l1_st; update_time = l1_ut } =
         l1
       in
-      let { id = id2
-          ; src = l2_src
-          ; dst = l2_dst
-          ; status = l2_st
-          ; update_time = l2_ut
-          ; buffer = b2
-          }
-        =
+      let { id = id2; src = l2_src; dst = l2_dst; status = l2_st; update_time = l2_ut } =
         l2
       in
       Int.(l1_src = l2_src)
@@ -61,7 +42,6 @@ module Link_signal = struct
       && equal_link_status l1_st l2_st
       && Int.(l1_ut = l2_ut)
       && Int.(id1 = id2)
-      && Int.(b1 = b2)
     ;;
 
     let resolve_value =
@@ -80,18 +60,19 @@ module Link_signal = struct
 
     let check_value_compatibility _ = ()
     let initial_value = undefined
-
-    let get_delay = function
-      | Undefined | Connecting | Ready | Received | Complete -> 1
-      | _ -> 0
-    ;;
-
     let buffer_fill_delay payload = payload / 10
     let buffer_clear_delay = 1
 
+    let get_delay = function
+      | Undefined | Connecting | Ready | Received | Complete -> 1
+      | NonEmptyBuffer payload -> buffer_fill_delay payload
+      | ClearBuffer -> buffer_clear_delay
+      | _ -> 0
+    ;;
+
     let make_t src dst status time =
       Int.incr nextid;
-      { id = !nextid; src; dst; status; update_time = time; buffer = 0 }
+      { id = !nextid; src; dst; status; update_time = time }
     ;;
   end
 end

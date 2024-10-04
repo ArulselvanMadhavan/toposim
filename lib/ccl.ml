@@ -125,7 +125,6 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     Array.findi_exn all_link_types ~f:(fun _i -> Link_type.equal TerminalToSwitch)
   in
   let payload = payload / n in
-  let send_time = payload / 1 in
   (* let term_dst_mat = all_dst_mats.(term_idx) in *)
   let t_to_sw_lmat = all_link_mats.(term_idx) in
   (* let start_send_proc link_type _src_id uls = *)
@@ -145,17 +144,19 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   (* Array.mapi term_link_mat ~f:start_send_proc *)
   let manage_term_links _src_id uls =
     let ul_ids = Array.map uls ~f:Signal.id |> Array.to_list in
+    let has_data = ref 5 in
     let fill_buffer_proc () =
       let handle_fill ul =
         match !!ul.status with
-        | Ready when Int.(!!ul.buffer = 0) ->
-          let lv = { !!ul with buffer = payload; update_time = Async.current_time () } in
-          let delay = buffer_fill_delay payload in
-          (ul <--- lv) ~delay
-        | Ready when Int.(!!ul.buffer > 0) -> update_status ul (Sending send_time)
-        | Received when Int.(!!ul.buffer > 0) ->
-          let lv = { !!ul with buffer = 0; update_time = Async.current_time () } in
-          (ul <--- lv) ~delay:buffer_clear_delay
+        | Ready when !has_data > 0 -> update_status ul (NonEmptyBuffer payload)
+        | NonEmptyBuffer payload ->
+          let send_time = payload / 1 in
+          update_status ul (Sending send_time)
+        | Received ->
+          Int.decr has_data;
+          update_status ul ClearBuffer
+        | ClearBuffer when !has_data > 0 -> update_status ul Ready
+        | ClearBuffer -> update_status ul Complete
         | _ -> ()
       in
       Array.iter uls ~f:handle_fill
