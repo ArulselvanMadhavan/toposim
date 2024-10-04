@@ -151,7 +151,7 @@ let () =
     Ccl.reduce_scatter conn (4 * 100) all_link_types all_dst_mats all_link_mats
     |> Array.to_list
   in
-  (* Link.build_trace "reduce_scatter" link_mat; *)
+  Link.build_trace all_link_types all_link_mats;
   let xpus = procs @ dbgs @ comms in
   let xpusim = Sim.create xpus in
   Sim.run xpusim ~time_limit:1500

@@ -42,7 +42,7 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
         Int.decr ul_count;
         update_status ul ClearBuffer
       | ClearBuffer -> update_status ul Ready
-       | _ -> ()
+      | _ -> ()
     in
     let dl_proc () =
       let handle_dl dl =

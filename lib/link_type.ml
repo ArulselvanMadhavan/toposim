@@ -4,4 +4,4 @@ type t =
   | SwitchToSwitch
   | SwitchToTerminal
   | TerminalToSwitch
-[@@deriving equal, compare]
+[@@deriving equal, compare, sexp_of]
