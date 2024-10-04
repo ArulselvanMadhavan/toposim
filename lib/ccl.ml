@@ -34,30 +34,33 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     let dls = flatten_mat dls in
     let ul_ids = Link_signal.signal_ids uls in
     let dl_ids = Link_signal.signal_ids dls in
-    let has_data = ref 1 in
+    let ul_count = ref 1 in
     let ul_proc () =
       let handle_fill ul =
         match !!ul.status with
-        | Ready when !has_data > 0 -> update_status ul (NonEmptyBuffer payload)
+        | Ready when !ul_count > 0 -> update_status ul (NonEmptyBuffer payload)
         | NonEmptyBuffer payload -> update_status ul (Sending payload)
         | Received ->
-          Int.decr has_data;
+          Int.decr ul_count;
           update_status ul ClearBuffer
-        | ClearBuffer when !has_data > 0 -> update_status ul Ready
+        | ClearBuffer when !ul_count > 0 -> update_status ul Ready
         | ClearBuffer -> update_status ul Complete
         | _ -> ()
       in
       Array.iter uls ~f:handle_fill
     in
-    let has_data = ref 1 in
     let dl_proc () =
       let handle_dl dl =
+        (* let dl_count = ref 1 in *)
         match !!dl.status with
-        | Sending _ when !has_data > 0 ->
-          Int.decr has_data;
+        (* | Sending _ when !dl_count > 0 -> *)
+        (*   Int.decr dl_count; *)
+        (*   (\* pf "src:%d|dst:%d|dl_count:%d\n" !!dl.src !!dl.dst !dl_count; *\) *)
+        (*   update_status dl Received *)
+        (* | Sending _p when !dl_count <= 0 -> *)
+        (*   pf "Unexpected payload received at %d from %d\n" !!dl.dst !!dl.src *)
+        | Sending _ ->
           update_status dl Received
-        | Sending _p when !has_data <= 0 ->
-          pf "Unexpected payload received at %d from %d\n" !!dl.dst !!dl.src
         | _ -> ()
       in
       Array.iter dls ~f:handle_dl
@@ -99,7 +102,7 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     let sw_uls = flatten_mat sw_to_sw_lmat in
     let uls = Array.append t_uls sw_uls in
     let uls_ids = Array.map uls ~f:Signal.id |> Array.to_list in
-    let has_data = ref 1 in
+    let sw_ul_count = ref 1 in
     let uls_proc () =
       let handle_ul ul =
         match !!ul.status with
@@ -107,9 +110,9 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
           let send_time = payload / 1 in
           update_status ul (Sending send_time)
         | Received ->
-          Int.decr has_data;
+          Int.decr sw_ul_count;
           update_status ul ClearBuffer
-        | ClearBuffer when !has_data > 0 -> update_status ul Ready
+        | ClearBuffer when !sw_ul_count > 0 -> update_status ul Ready
         | ClearBuffer -> update_status ul Complete
         | _ -> ()
       in
