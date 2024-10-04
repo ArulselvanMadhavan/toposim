@@ -62,13 +62,13 @@ module Link_signal = struct
     let initial_value = undefined
     let buffer_fill_delay payload = payload / 10
     let buffer_clear_delay = 1
+    let link_bw = 1
 
     let get_delay = function
       | Undefined | Connecting | Ready | Received | Complete -> 1
       | NonEmptyBuffer payload -> buffer_fill_delay payload
       | ClearBuffer -> buffer_clear_delay
-      | _ -> 0
-    ;;
+      | Sending payload -> payload / link_bw
 
     let make_t src dst status time =
       Int.incr nextid;
