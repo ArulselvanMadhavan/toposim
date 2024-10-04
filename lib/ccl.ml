@@ -16,54 +16,6 @@ let update_status link nxt_sts =
   (link <--- lv) ~delay
 ;;
 
-let send_proc uls send_time () =
-  let open Link.Link_signal.Link_value in
-  let handle_send ul =
-    match !!ul.status with
-    | Ready -> update_status ul (Sending send_time)
-    | Received -> update_status ul Complete
-    | _ -> ()
-  in
-  Array.iter uls ~f:handle_send
-;;
-
-let recv_proc dls () =
-  let open Link.Link_signal.Link_value in
-  let handle_recv dl =
-    match !!dl.status with
-    | Sending delay ->
-      let lv = { !!dl with status = Received; update_time = Async.current_time () } in
-      (dl <--- lv) ~delay
-    | _ -> ()
-  in
-  Array.iter dls ~f:handle_recv
-;;
-
-let make_recv_procs n dst_mat link_mat =
-  let trigger_recv xpu_id =
-    let dls = Link.downlinks_for_switch dst_mat link_mat xpu_id in
-    let dl_ids = Array.map dls ~f:Signal.id in
-    Process.create (Array.to_list dl_ids) (recv_proc dls)
-  in
-  Array.init n ~f:trigger_recv
-;;
-
-let make_procs_list xs = List.map xs ~f:Array.to_list |> List.concat
-
-let all2all_send_receive n payload dst_mat link_mat =
-  (* Send to all uplinks *)
-  let trigger_send xpu_id =
-    let payload = payload / n in
-    let send_time = payload / 1 in
-    let uls = link_mat.(xpu_id) in
-    let ul_ids = Link.Link_signal.signal_ids uls in
-    Process.create ul_ids (send_proc uls send_time)
-  in
-  let send_procs = Array.init n ~f:trigger_send in
-  let recv_procs = make_recv_procs n dst_mat link_mat in
-  make_procs_list [ send_procs; recv_procs ]
-;;
-
 let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   let open! Sim in
   let open! Link.Link_signal.Link_value in
@@ -77,7 +29,6 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
   let t_to_sw_lmat = all_link_mats.(t_to_sw_idx) in
   let sw_to_t_lmat = all_link_mats.(sw_to_t_idx) in
   let sw_to_sw_lmat = all_link_mats.(sw_to_sw_idx) in
-
   let term_procs uls dls =
     let uls = flatten_mat uls in
     let dls = flatten_mat dls in
@@ -88,9 +39,7 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
       let handle_fill ul =
         match !!ul.status with
         | Ready when !has_data > 0 -> update_status ul (NonEmptyBuffer payload)
-        | NonEmptyBuffer payload ->
-          let send_time = payload / 1 in
-          update_status ul (Sending send_time)
+        | NonEmptyBuffer payload -> update_status ul (Sending payload)
         | Received ->
           Int.decr has_data;
           update_status ul ClearBuffer
@@ -104,18 +53,18 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
     let dl_proc () =
       let handle_dl dl =
         match !!dl.status with
-        | Received ->
+        | Sending _ when !has_data > 0 ->
           Int.decr has_data;
-          update_status ul ClearBuffer
-        | ClearBuffer when !has_data > 0 -> update_status ul Ready
-        | ClearBuffer -> update_status ul Complete
+          update_status dl Received
+        | Sending _p when !has_data <= 0 ->
+          pf "Unexpected payload received at %d from %d\n" !!dl.dst !!dl.src
         | _ -> ()
       in
       Array.iter dls ~f:handle_dl
     in
     let ul_proc = Process.create ul_ids ul_proc in
     let dl_proc = Process.create dl_ids dl_proc in
-    [|ul_proc; dl_proc|]
+    [| ul_proc; dl_proc |]
   in
   let switch_procs t_to_sw_lmat sw_to_t_lmat sw_to_sw_lmat =
     (* Handle dls *)
@@ -130,7 +79,9 @@ let ring_send_receive n payload all_link_types _all_dst_mats all_link_mats =
           let sw_id = !!dl.dst in
           let src = !!dl.src in
           let is_terminal = src >= n in
-          let next_link = if is_terminal then sw_to_sw_lmat.(sw_id) else sw_to_t_lmat.(sw_id) in
+          let next_link =
+            if is_terminal then sw_to_sw_lmat.(sw_id) else sw_to_t_lmat.(sw_id)
+          in
           (* there will be multiple candidates to receive. topology selects the next link *)
           (* ASSUME: Ring always send to the right.
              ASSUME: There is only one terminal *)

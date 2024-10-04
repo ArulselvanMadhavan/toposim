@@ -72,13 +72,13 @@ module Link_signal = struct
       | NonEmptyBuffer payload -> buffer_fill_delay payload
       | ClearBuffer -> buffer_clear_delay
       | Sending payload -> payload / link_bw
+    ;;
 
     let make_t src dst status time =
       Int.incr nextid;
       { id = !nextid; src; dst; status; update_time = time }
     ;;
   end
-
 end
 
 let pf = Stdio.printf
