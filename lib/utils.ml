@@ -21,3 +21,5 @@ let transpose mat =
   Array.iteri mat ~f:(fun i row -> Array.iteri row ~f:(fun j e -> tmat.(j).(i) <- e));
   tmat
 ;;
+
+let make_3d elem arr = Array.map arr ~f:(Array.map ~f:(Array.map ~f:(Fn.const elem)))

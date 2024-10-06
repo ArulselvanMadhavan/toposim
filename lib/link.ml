@@ -104,145 +104,75 @@ let downlinks_for_switch dst_mat link_mat xpu_id =
     src_links.(i))
 ;;
 
-let build_trace all_link_types all_link_mats =
+let add_track_event _otpsi track_uuid link =
   let open Perfetto.Trace in
+  let open Sim in
+  let open Link_signal.Link_value in
+  let event_name = sexp_of_link_status !!link.status |> Sexp.to_string in
+  let timestamp = !!link.update_time |> Int64.of_int |> Some in
+  let name_field : track_event_name_field = Name event_name in
+  let type_ = Some Type_slice_begin in
+  let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
+  (* let optional_trusted_packet_sequence_id = *)
+  (*   Trusted_packet_sequence_id (Int32.of_int_exn otpsi) *)
+  (* in *)
+  let start_pkt =
+    default_trace_packet ~timestamp ~data (* ~optional_trusted_packet_sequence_id *) ()
+  in
+  let type_ = Some Type_slice_end in
+  let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
+  let timestamp = Async.current_time () |> Int64.of_int |> Some in
+  let end_pkt =
+    default_trace_packet ~timestamp ~data (* ~optional_trusted_packet_sequence_id *) ()
+  in
+  start_pkt, end_pkt
+;;
+
+let build_trace all_link_types all_dst_mats =
+  let open Perfetto.Trace in
+  (* let open Sim in *)
+  (* let open Link_signal.Link_value in *)
   let make_uuid () = Random.bits64 () |> Option.Some in
   let uuid = make_uuid () in
   let create_process pid link_type =
     let process_name = Link_type.sexp_of_t link_type |> Sexp.to_string |> Some in
-    let threads = all_link_mats.(pid) in
+    let threads = all_dst_mats.(pid) in
     let pid = Int32.of_int pid in
     let process = default_process_descriptor ~pid ~process_name () |> Some in
     let proc_track = Track_descriptor (default_track_descriptor ~uuid ~process ()) in
-    let build_thread tid _ =
+    let tdesc = ref [] in
+    let build_thread tid dsts =
       let parent_uuid = uuid in
-      let uuid = make_uuid () in
-      let thread_name =
-        Option.map process_name ~f:(fun pn -> pn ^ "_link_" ^ Int.to_string tid)
-      in
-      let tid = Int32.of_int tid in
-      let static_or_dynamic_name = Static_name (Option.value_exn thread_name) in
-      let thread = default_thread_descriptor ~pid ~tid ~thread_name () |> Some in
-      ( uuid
-      , Track_descriptor
-          (default_track_descriptor ~uuid ~parent_uuid ~thread ~static_or_dynamic_name ())
-      )
+      Array.map dsts ~f:(fun dst ->
+        let uuid = make_uuid () in
+        let thread_name =
+          Option.map process_name ~f:(fun pn ->
+            pn ^ "_" ^ Int.to_string tid ^ "_" ^ Int.to_string dst)
+        in
+        let tid = Int32.of_int tid in
+        let static_or_dynamic_name = Static_name (Option.value_exn thread_name) in
+        let thread = default_thread_descriptor ~pid ~tid ~thread_name () |> Some in
+        tdesc
+        := Track_descriptor
+             (default_track_descriptor
+                ~uuid
+                ~parent_uuid
+                ~thread
+                ~static_or_dynamic_name
+                ())
+           :: !tdesc;
+        uuid)
     in
-    let thread_tracks = Array.mapi threads ~f:build_thread in
-    let track_ids, thread_tracks = Array.unzip thread_tracks in
-    let start_packets = Array.append [| proc_track |] thread_tracks in
+    let track_mat = Array.mapi threads ~f:build_thread in
+    let thread_tracks = List.rev !tdesc in
+    let start_packets = proc_track :: thread_tracks in
     let start_packets =
-      Array.map start_packets ~f:(fun data -> default_trace_packet ~data ())
+      List.map start_packets ~f:(fun data -> default_trace_packet ~data ())
     in
-    track_ids, start_packets
+    track_mat, start_packets
   in
   let track_mat, start_packets =
     Array.mapi all_link_types ~f:create_process |> Array.unzip
   in
-  let track_mat = Utils.flatten_mat track_mat in
-  let optional_trusted_packet_sequence_id =
-    Trusted_packet_sequence_id (Int32.of_int_exn 1)
-  in
-  let event_packets =
-    Array.mapi track_mat ~f:(fun idx track_uuid ->
-      let name_field : track_event_name_field = Name "sending" in
-      let type_ = Some Type_slice_begin in
-      let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
-      let start_pkt =
-        default_trace_packet
-          ~timestamp:(Some Int64.one)
-          ~data
-          ~optional_trusted_packet_sequence_id
-          ()
-      in
-      let type_ = Some Type_slice_end in
-      let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
-      let end_pkt =
-        default_trace_packet
-          ~timestamp:(Some (Int64.of_int ((idx + 1) * 10)))
-          ~data
-          ~optional_trusted_packet_sequence_id
-          ()
-      in
-      [| start_pkt; end_pkt |])
-  in
-  let event_packets = Utils.flatten_mat event_packets in
-  let start_packets = Utils.flatten_mat start_packets in
-  let packet = Array.append start_packets event_packets |> Array.to_list in
-  (* let event_slice () = *)
-  (*   let type_ = Some Type_slice_begin in *)
-  (*   let track_uuid = uuid in *)
-  (*   let name_field : track_event_name_field = Name "parent" in *)
-  (*   let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in *)
-  (*   let start_pkt = *)
-  (*     default_trace_packet *)
-  (*       ~timestamp:(Some Int64.one) *)
-  (*       ~data *)
-  (*       ~optional_trusted_packet_sequence_id *)
-  (*       () *)
-  (*   in *)
-  (*   let type_ = Some Type_slice_end in *)
-  (*   let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in *)
-  (*   let end_pkt = *)
-  (*     default_trace_packet *)
-  (*       ~timestamp:(Some (Int64.of_int 24000)) *)
-  (*       ~data *)
-  (*       ~optional_trusted_packet_sequence_id *)
-  (*       () *)
-  (*   in *)
-  (*   [| start_pkt; end_pkt |] *)
-  (* in *)
-  (* let evt_pkts = event_slice () in *)
-
-  (* let build_trace _coll_name link_mat = *)
-  (*   let open Perfetto.Trace in *)
-  (*   let make_uuid () = Random.bits64 () |> Option.Some in *)
-  (*   let trace_all = Array.init (Array.length link_mat) ~f:(fun _ -> [||]) in *)
-  (*   Array.iteri link_mat ~f:(fun xpu_id _uls -> *)
-  (*     let uuid = make_uuid () in *)
-  (*     let optional_trusted_packet_sequence_id = *)
-  (*       Trusted_packet_sequence_id (Int32.of_int_exn ((31 * xpu_id) + 1)) *)
-  (*     in *)
-  (*     let process_name = "XPU_" ^ Int.to_string xpu_id |> Option.Some in *)
-  (*     let pid = Int32.of_int xpu_id in *)
-  (*     let process = default_process_descriptor ~pid ~process_name () |> Option.Some in *)
-  (*     let tr_desc = default_track_descriptor ~uuid ~process () in *)
-  (*     let data = Track_descriptor tr_desc in *)
-  (*     let proc_pkt = default_trace_packet ~data ~optional_trusted_packet_sequence_id () in *)
-  (*     let event_slice () = *)
-  (*       let type_ = Some Type_slice_begin in *)
-  (*       let track_uuid = uuid in *)
-  (*       let name_field : track_event_name_field = Name "parent" in *)
-  (*       let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in *)
-  (*       let start_pkt = *)
-  (*         default_trace_packet *)
-  (*           ~timestamp:(Some Int64.one) *)
-  (*           ~data *)
-  (*           ~optional_trusted_packet_sequence_id *)
-  (*           () *)
-  (*       in *)
-  (*       let type_ = Some Type_slice_end in *)
-  (*       let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in *)
-  (*       let end_pkt = *)
-  (*         default_trace_packet *)
-  (*           ~timestamp:(Some (Int64.of_int 24000)) *)
-  (*           ~data *)
-  (*           ~optional_trusted_packet_sequence_id *)
-  (*           () *)
-  (*       in *)
-  (*       [| start_pkt; end_pkt |] *)
-  (*     in *)
-  (*     let evt_pkts = event_slice () in *)
-  (*     trace_all.(xpu_id) <- Array.append [| proc_pkt |] evt_pkts); *)
-  (*   let packet = *)
-  (*     Array.fold trace_all ~init:[] ~f:(Fn.flip List.cons) *)
-  (*     |> List.rev *)
-  (*     |> Array.concat *)
-  (*     |> Array.to_list *)
-  (*   in *)
-  let trace = default_trace ~packet () in
-  let encoder = Pbrt.Encoder.create () in
-  encode_pb_trace trace encoder;
-  Stdio.Out_channel.with_file "toposim.perfetto" ~f:(fun oc ->
-    Stdio.Out_channel.output_bytes oc (Pbrt.Encoder.to_bytes encoder))
+  Array.to_list start_packets |> List.concat, track_mat
 ;;

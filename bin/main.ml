@@ -151,8 +151,34 @@ let () =
     Ccl.reduce_scatter conn (4 * 100) all_link_types all_dst_mats all_link_mats
     |> Array.to_list
   in
-  Link.build_trace all_link_types all_link_mats;
-  let xpus = procs @ dbgs @ comms in
+  (* Trace processes *)
+  let start_pkts, all_track_mat = Link.build_trace all_link_types all_dst_mats in
+  let track_acc = make_3d [] all_track_mat in
+  let track_procs = ref [] in
+  Array.iteri all_link_mats ~f:(fun dim1 link_mat ->
+    Array.iteri link_mat ~f:(fun dim2 links ->
+      Array.iteri links ~f:(fun dim3 link ->
+        let trace_link () =
+          let acc = track_acc.(dim1).(dim2).(dim3) in
+          let otpsi = (dim2 * Array.length links) + dim3 in
+          let track_uuid = all_track_mat.(dim1).(dim2).(dim3) in
+          let start_pkt, end_pkt = add_track_event otpsi track_uuid link in
+          track_acc.(dim1).(dim2).(dim3) <- end_pkt :: start_pkt :: acc
+        in
+        track_procs := Process.create [ Signal.id link ] trace_link :: !track_procs)));
+  let xpus = procs @ dbgs @ comms @ !track_procs in
   let xpusim = Sim.create xpus in
-  Sim.run xpusim ~time_limit:1500
+  Sim.run xpusim ~time_limit:1500;
+  (* Write trace *)
+  let track_events = ref [] in
+  Array.iter track_acc ~f:(fun acc_mat ->
+    Array.iter acc_mat ~f:(fun acc ->
+      Array.iter acc ~f:(fun a -> track_events := List.rev a :: !track_events)));
+  let event_pkts = List.concat !track_events in
+  let packet = List.append start_pkts event_pkts in
+  let trace = Perfetto.Trace.default_trace ~packet () in
+  let encoder = Pbrt.Encoder.create () in
+  Perfetto.Trace.encode_pb_trace trace encoder;
+  Stdio.Out_channel.with_file "toposim.perfetto" ~f:(fun oc ->
+    Stdio.Out_channel.output_bytes oc (Pbrt.Encoder.to_bytes encoder))
 ;;
