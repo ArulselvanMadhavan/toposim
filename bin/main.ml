@@ -160,7 +160,9 @@ let () =
       Array.iteri links ~f:(fun dim3 link ->
         let trace_link () =
           let acc = track_acc.(dim1).(dim2).(dim3) in
-          let otpsi = (dim2 * Array.length links) + dim3 in
+          let otpsi =
+            (dim1 * Array.length link_mat) + (dim2 * Array.length links) + dim3
+          in
           let track_uuid = all_track_mat.(dim1).(dim2).(dim3) in
           let start_pkt, end_pkt = add_track_event otpsi track_uuid link in
           track_acc.(dim1).(dim2).(dim3) <- end_pkt :: start_pkt :: acc

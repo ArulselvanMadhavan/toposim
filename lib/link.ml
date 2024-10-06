@@ -5,7 +5,7 @@ module Signal = Sim.Signal
 module Link_signal = struct
   let undefined_link_id = -1
   let nextid = ref undefined_link_id
-  let signal_ids links = Array.map links ~f:Signal.id |> Array.to_list
+  (* let signal_ids links = Array.map links ~f:Signal.id |> Array.to_list *)
 
   module Link_value = struct
     type link_status =
@@ -104,7 +104,7 @@ let downlinks_for_switch dst_mat link_mat xpu_id =
     src_links.(i))
 ;;
 
-let add_track_event _otpsi track_uuid link =
+let add_track_event otpsi track_uuid link =
   let open Perfetto.Trace in
   let open Sim in
   let open Link_signal.Link_value in
@@ -113,17 +113,17 @@ let add_track_event _otpsi track_uuid link =
   let name_field : track_event_name_field = Name event_name in
   let type_ = Some Type_slice_begin in
   let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
-  (* let optional_trusted_packet_sequence_id = *)
-  (*   Trusted_packet_sequence_id (Int32.of_int_exn otpsi) *)
-  (* in *)
+  let optional_trusted_packet_sequence_id =
+    Trusted_packet_sequence_id (Int32.of_int_exn otpsi)
+  in
   let start_pkt =
-    default_trace_packet ~timestamp ~data (* ~optional_trusted_packet_sequence_id *) ()
+    default_trace_packet ~timestamp ~data ~optional_trusted_packet_sequence_id ()
   in
   let type_ = Some Type_slice_end in
   let data = default_track_event ~name_field ~type_ ~track_uuid () |> Track_event in
   let timestamp = Async.current_time () |> Int64.of_int |> Some in
   let end_pkt =
-    default_trace_packet ~timestamp ~data (* ~optional_trusted_packet_sequence_id *) ()
+    default_trace_packet ~timestamp ~data ~optional_trusted_packet_sequence_id ()
   in
   start_pkt, end_pkt
 ;;
